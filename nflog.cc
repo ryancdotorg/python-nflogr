@@ -303,11 +303,13 @@ static PyObject * _recv(register nflogobject *n) {
     nflog_handle_packet(n->h, buf, rv);
     return fifo_shift(n);
   } else {
-    PyErr_Format(
-        PyExc_OSError,
-        "recv() on nflog fd %s failed %s (%d)",
-        n->fd, strerror(errno), errno
+    // PyErr_Format was segfaulting when ctrl-c was hit
+    char err[256];
+    snprintf(err, sizeof(err),
+      "recv() on nflog fd %d failed: %s (%d)",
+      n->fd, strerror(errno), errno
     );
+    PyErr_SetString(PyExc_OSError, err);
     return NULL;
   }
 }
