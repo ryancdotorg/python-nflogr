@@ -8,6 +8,7 @@ this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
+# generate functions to add constants to module from system header files
 def make_constants(header, prefix, regex):
     hfile = '/usr/include/' + header
     out = path.join(this_directory, 'nflogconst%s.cc' % prefix)
