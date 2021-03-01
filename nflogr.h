@@ -1,7 +1,7 @@
 /* Copyright 2021 Ryan Castellucci, MIT License */
 
-#ifndef __nflogr__
-#define __nflogr__
+#ifndef __nflogr_h__
+#define __nflogr_h__
 
 extern "C" {
 PyObject * PyInit_nflog(void);
@@ -11,4 +11,4 @@ PyObject * PyInit_nflog(void);
 extern PyObject *NflogError;
 extern PyObject *NflogClosedError;
 
-#endif//__nflogr__
+#endif//__nflogr_h__
