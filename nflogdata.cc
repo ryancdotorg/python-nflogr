@@ -26,10 +26,10 @@ typedef struct {
 
   double   timestamp;
 
-  uint32_t indev;
-  uint32_t physindev;
-  uint32_t outdev;
-  uint32_t physoutdev;
+  PyObject *indev;
+  PyObject *physindev;
+  PyObject *outdev;
+  PyObject *physoutdev;
 
   PyObject *uid;
   PyObject *gid;
@@ -40,6 +40,7 @@ typedef struct {
   PyObject *prefix;
 
   PyObject *raw;
+  PyObject *devnames;
 } nflogdataobject;
 
 typedef struct {
@@ -57,16 +58,47 @@ static void ndi_dealloc(register nflogdataiter *ndi) {
 }
 
 static void nflogdata_dealloc(register nflogdataobject *nd) {
-  Py_DECREF(nd->uid);
-  Py_DECREF(nd->gid);
-  Py_DECREF(nd->hwhdr);
-  Py_DECREF(nd->payload);
-  Py_DECREF(nd->prefix);
-  Py_DECREF(nd->raw);
+  Py_XDECREF(nd->indev);
+  Py_XDECREF(nd->physindev);
+  Py_XDECREF(nd->outdev);
+  Py_XDECREF(nd->physoutdev);
+  Py_XDECREF(nd->uid);
+  Py_XDECREF(nd->gid);
+  Py_XDECREF(nd->hwhdr);
+  Py_XDECREF(nd->payload);
+  Py_XDECREF(nd->prefix);
+  Py_XDECREF(nd->raw);
+  Py_XDECREF(nd->devnames);
   PyObject_Del(nd);
 }
 
-PyObject * new_nflogdataobject(struct nflog_data *nfad, int raw) {
+static PyObject * _devname(register nflogdataobject *nd, uint32_t idx) {
+  if (idx) {
+    char buf[IF_NAMESIZE] = {0};
+    PyObject *devname, *devidx;
+    // if devnames is non-null, check there first
+    if (nd->devnames) {
+      devidx = Py_BuildValue("k", idx);
+      if ((devname = PyDict_GetItem(nd->devnames, devidx))) {
+        // found
+        Py_INCREF(devname);
+      } else {
+        // not found, ask the system and save
+        if_indextoname(idx, buf);
+        devname = Py_BuildValue("s", buf);
+        PyDict_SetItem(nd->devnames, devidx, devname);
+      }
+    } else {
+      if_indextoname(idx, buf);
+      devname = Py_BuildValue("s", buf);
+    }
+    return devname;
+  } else {
+    Py_RETURN_NONE;
+  }
+}
+
+PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
   nflogdataobject *nd = PyObject_New(nflogdataobject, &NflogDatatype);
   if (nd == NULL) { return NULL; }
 
@@ -86,17 +118,24 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, int raw) {
     return NULL;
   }
   if (_PyTime_FromTimeval(&tp, &tv) != 0) {
-    PyErr_SetString(NflogError, "invalid timeval");
     PyObject_Del(nd);
     return NULL;
   }
   nd->timestamp = _PyTime_AsSecondsDouble(tp);
 
+  // internal values
+  if ((nd->devnames = devnames)) {
+    nd->raw = _NfadAsTuple(nfad);
+  } else {
+    nd->raw = Py_None;
+    Py_INCREF(Py_None);
+  }
+
   // devs
-  nd->indev = nflog_get_indev(nfad);
-  nd->physindev = nflog_get_physindev(nfad);
-  nd->outdev = nflog_get_outdev(nfad);
-  nd->physoutdev = nflog_get_physoutdev(nfad);
+  nd->indev = _devname(nd, nflog_get_indev(nfad));
+  nd->physindev = _devname(nd, nflog_get_physindev(nfad));
+  nd->outdev = _devname(nd, nflog_get_outdev(nfad));
+  nd->physoutdev = _devname(nd, nflog_get_physoutdev(nfad));
 
   // uid/gid
   uint32_t id;
@@ -126,24 +165,7 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, int raw) {
   char *prefix = nflog_get_prefix(nfad);
   nd->prefix = Py_BuildValue("s", prefix);
 
-  if (raw) {
-    nd->raw = _NfadAsTuple(nfad);
-  } else {
-    nd->raw = Py_None;
-    Py_INCREF(Py_None);
-  }
-
   return (PyObject *)nd;
-}
-
-static PyObject * _devname(uint32_t idx) {
-  char buf[20] = {0};
-  if (idx) {
-    if_indextoname(idx, buf);
-    return Py_BuildValue("s", buf);
-  } else {
-    Py_RETURN_NONE;
-  }
 }
 
 static PyObject * nd_get_proto(register nflogdataobject *nd, void *) {
@@ -163,19 +185,23 @@ static PyObject * nd_get_timestamp(register nflogdataobject *nd, void *) {
 }
 
 static PyObject * nd_get_indev(register nflogdataobject *nd, void *) {
-  return _devname(nd->indev);
+  Py_INCREF(nd->indev);
+  return nd->indev;
 }
 
 static PyObject * nd_get_physindev(register nflogdataobject *nd, void *) {
-  return _devname(nd->physindev);
+  Py_INCREF(nd->physindev);
+  return nd->physindev;
 }
 
 static PyObject * nd_get_outdev(register nflogdataobject *nd, void *) {
-  return _devname(nd->outdev);
+  Py_INCREF(nd->outdev);
+  return nd->outdev;
 }
 
 static PyObject * nd_get_physoutdev(register nflogdataobject *nd, void *) {
-  return _devname(nd->physoutdev);
+  Py_INCREF(nd->physoutdev);
+  return nd->physoutdev;
 }
 
 static PyObject * nd_get_uid(register nflogdataobject *nd, void *) {
@@ -204,8 +230,16 @@ static PyObject * nd_get_prefix(register nflogdataobject *nd, void *) {
 }
 
 static PyObject * nd_get__raw(register nflogdataobject *nd, void *) {
+  PyObject *tup;
+  if (!(tup = PyTuple_New(2))) { return NULL; }
+
+  Py_INCREF(nd->devnames);
+  PyTuple_SetItem(tup, 0, nd->devnames);
+
   Py_INCREF(nd->raw);
-  return nd->raw;
+  PyTuple_SetItem(tup, 1, nd->raw);
+
+  return tup;
 }
 
 static PyGetSetDef nd_getset[] = {
@@ -334,15 +368,25 @@ PyObject * nd__repr__(register nflogdataobject *nd) {
 }
 
 PyObject * nd__new__(PyTypeObject *subtype, PyObject *args, PyObject *) {
-  PyObject *tup;
-  if (!PyArg_ParseTuple(args, "O:__new__", &tup) || !PyTuple_Check(tup)) {
-    PyErr_SetString(PyExc_TypeError, "argument must be a tuple");
+  PyObject *o, *dict, *tup;
+
+  if (!PyArg_ParseTuple(args, "O:__new__", &o)) { return NULL; }
+
+  if (!PyTuple_Check(o) || PyTuple_Size(o) != 2) {
+    PyErr_SetString(PyExc_TypeError, "argument must be a two item tuple");
+    return NULL;
+  }
+
+  if (!PyDict_Check(dict = PyTuple_GetItem(o, 0))
+  || !PyTuple_Check(tup = PyTuple_GetItem(o, 1))) {
+    PyErr_SetString(PyExc_TypeError, "argument must be a (dict, tuple)");
     return NULL;
   }
 
   struct nflog_data *nfad = _TupleAsNfad(tup);
   if (!nfad) { return NULL; }
-  return new_nflogdataobject(nfad, 1);
+  Py_INCREF(dict);
+  return new_nflogdataobject(nfad, dict);
 }
 
 PyObject * ndi__iter__(register nflogdataiter *ndi) {

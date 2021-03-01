@@ -3,7 +3,7 @@
 #ifndef __nflogdata_h__
 #define __nflogdata_h__
 
-PyObject * new_nflogdataobject(struct nflog_data *nfad, int raw);
+PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *dict);
 
 extern PyTypeObject NflogDatatype;
 extern PyTypeObject NflogDataItertype;

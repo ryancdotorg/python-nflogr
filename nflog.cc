@@ -215,7 +215,10 @@ PyTypeObject Nflogtype {
 
 static int NflogQueue(struct nflog_g_handle *, struct nfgenmsg *, struct nflog_data *nfad, void *data) {
   nflogobject *n = (nflogobject *)data;
-  return fifo_push(n, new_nflogdataobject(nfad, n->raw));
+  PyObject *devnames = NULL;
+
+  if (n->raw && !(devnames = PyDict_New())) { return -1; }
+  return fifo_push(n, new_nflogdataobject(nfad, devnames));
 }
 
 PyObject * new_nflogobject(struct nflog_handle *h, struct nflog_g_handle *gh, int group) {
