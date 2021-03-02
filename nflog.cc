@@ -356,7 +356,7 @@ static PyObject * n_next(register nflogobject *n, PyObject *args) {
 
   if (PyFn != Py_None) {
     if (!PyCallable_Check(PyFn)) {
-      PyErr_SetString(PyExc_TypeError, "argument must be callable if not `None`");
+      PyErr_SetString(PyExc_TypeError, "argument must be callable or `None`");
       return NULL;
     }
     if (!(nd = _recv(n))) { return NULL; }
