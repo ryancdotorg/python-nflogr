@@ -159,13 +159,13 @@ static PyObject * l__from_iter(PyObject *self, PyObject *args) {
 
 static PyMethodDef nflogrMethods[] = {
   {"open", (PyCFunction)l_open, METH_VARARGS | METH_KEYWORDS, PyDoc_STR(
-    "open(group, copymode=nflogr.COPY_PACKET, timeout=0.00, qthresh=1,"
-    "nlbufsiz=0, enobufs=True)\n"
+    "open($module, /, group, *, copymode=nflogr.COPY_PACKET, timeout=0.0,"
+    " qthresh=1, nlbufsiz=0, enobufs=True)\n"
     "--\n\n"
     "Open an nflog listener for the specifed group."
   )},
   {"_from_iter", (PyCFunction)l__from_iter, METH_VARARGS, PyDoc_STR(
-    "_from_iter(iterator)\n"
+    "_from_iter($module, iterator, /)\n"
     "--\n\n"
     "Open a mock nflog 'listener' which pulls messages from an iterator.\n"
     "INTENDED FOR DEBUGGING/TESTING ONLY!"

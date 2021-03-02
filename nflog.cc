@@ -133,36 +133,40 @@ static PyObject * n__next__(register nflogobject *n);
 
 static PyMethodDef n_methods[] = {
   {"next", (PyCFunction) n_next, METH_VARARGS, PyDoc_STR(
-      "next(fn=None)\n"
+      "next($self, fn=None, /)\n"
       "--\n\n"
       "return next message"
   )},
   {"loop", (PyCFunction) n_loop, METH_VARARGS, PyDoc_STR(
-      "loop(fn, count=-1)\n"
+      "loop($self, fn, count=-1, /)\n"
       "--\n\n"
       "process `count` (-1 meaning 'infinite') messages in a loop,"
       "passing each to callback function `fn`"
   )},
   {"close", (PyCFunction) n_close, METH_NOARGS, PyDoc_STR(
-      "close()\n"
+      "close($self, /)\n"
       "--\n\n"
       "close the socket"
   )},
   {"getfd", (PyCFunction) n_getfd, METH_NOARGS, PyDoc_STR(
-      "getfd()\n"
+      "getfd($self, /)\n"
       "--\n\n"
       "get selectable nflog fd"
   )},
   {"getgroup", (PyCFunction) n_getgroup, METH_NOARGS, PyDoc_STR(
-      "getgroup()\n"
+      "getgroup($self, /)\n"
       "--\n\n"
       "get nflog group id"
   )},
   {"_raw", (PyCFunction) n__raw, METH_VARARGS, PyDoc_STR(
+      "_raw($self, set=None, /)\n"
+      "--\n\n"
       "query/enable/disable capture of raw nflog data\n"
       "INTENDED FOR DEBUGGING/TESTING ONLY!"
   )},
   {"_recv_raw", (PyCFunction) n__recv_raw, METH_NOARGS, PyDoc_STR(
+      "_recv_raw($self, /)\n"
+      "--\n\n"
       "receive raw nflog data\n"
       "INTENDED FOR DEBUGGING/TESTING ONLY!"
   )},
