@@ -72,25 +72,35 @@ static void nflogdata_dealloc(register nflogdataobject *nd) {
   PyObject_Del(nd);
 }
 
+static PyObject * _if_indextoname(uint32_t idx) {
+  char buf[IF_NAMESIZE] = {0};
+  if (!if_indextoname(idx, buf)) {
+    snprintf(buf, sizeof(buf), "unkn/%u", idx);
+  }
+  return Py_BuildValue("s", buf);
+}
+
 static PyObject * _devname(register nflogdataobject *nd, uint32_t idx) {
   if (idx) {
-    char buf[IF_NAMESIZE] = {0};
     PyObject *devname, *devidx;
     // if devnames is non-null, check there first
     if (nd->devnames) {
-      devidx = Py_BuildValue("k", idx);
+      if (!(devidx = Py_BuildValue("k", idx))) { return NULL; }
       if ((devname = PyDict_GetItem(nd->devnames, devidx))) {
         // found
         Py_INCREF(devname);
       } else {
         // not found, ask the system and save
-        if_indextoname(idx, buf);
-        devname = Py_BuildValue("s", buf);
-        PyDict_SetItem(nd->devnames, devidx, devname);
+        devname = _if_indextoname(idx);
+        if (PyDict_SetItem(nd->devnames, devidx, devname) != 0) {
+          Py_DECREF(devname);
+          Py_DECREF(devidx);
+          return NULL;
+        }
       }
+      Py_DECREF(devidx);
     } else {
-      if_indextoname(idx, buf);
-      devname = Py_BuildValue("s", buf);
+      devname = _if_indextoname(idx);
     }
     return devname;
   } else {
@@ -100,7 +110,7 @@ static PyObject * _devname(register nflogdataobject *nd, uint32_t idx) {
 
 PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
   nflogdataobject *nd = PyObject_New(nflogdataobject, &NflogDatatype);
-  if (nd == NULL) { return NULL; }
+  if (!nd) { return NULL; }
 
   nd->hwtype = nflog_get_hwtype(nfad);
   nd->nfmark = nflog_get_nfmark(nfad);
@@ -234,10 +244,10 @@ static PyObject * nd_get__raw(register nflogdataobject *nd, void *) {
   if (!(tup = PyTuple_New(2))) { return NULL; }
 
   Py_INCREF(nd->devnames);
-  PyTuple_SetItem(tup, 0, nd->devnames);
+  PyTuple_SET_ITEM(tup, 0, nd->devnames);
 
   Py_INCREF(nd->raw);
-  PyTuple_SetItem(tup, 1, nd->raw);
+  PyTuple_SET_ITEM(tup, 1, nd->raw);
 
   return tup;
 }
@@ -272,16 +282,17 @@ struct nflog_data {
 
 static PyObject * _NfadAsTuple(struct nflog_data *nfad) {
   PyObject *tup = PyTuple_New(NFULA_MAX);
+  if (!tup) { return NULL; }
   struct nfattr *nfa;
   int i;
 
   for (i = 0; i < NFULA_MAX; ++i) {
     nfa = nfad->nfa[i];
     if (nfa) {
-      PyTuple_SetItem(tup, i, Py_BuildValue("y#", (((char *)(nfa)) + NFA_LENGTH(0)), nfa->nfa_len));
+      PyTuple_SET_ITEM(tup, i, Py_BuildValue("y#", (((char *)(nfa)) + NFA_LENGTH(0)), nfa->nfa_len));
     } else {
       Py_INCREF(Py_None);
-      PyTuple_SetItem(tup, i, Py_None);
+      PyTuple_SET_ITEM(tup, i, Py_None);
     }
   }
 
@@ -342,10 +353,10 @@ static struct nflog_data * _TupleAsNfad(PyObject *tup) {
 }
 
 PyObject * nd__iter__(register nflogdataobject *nd) {
-  if (PyType_Ready(&NflogDataItertype) < 0) { return NULL; }
+  if (PyType_Ready(&NflogDataItertype) != 0) { return NULL; }
 
   nflogdataiter *iter = PyObject_New(nflogdataiter, &NflogDataItertype);
-  if (iter == NULL) { return NULL; }
+  if (!iter) { return NULL; }
   iter->nd = nd;
   iter->n = 0;
   Py_INCREF(nd);
@@ -355,7 +366,12 @@ PyObject * nd__iter__(register nflogdataobject *nd) {
 PyObject * nd__str__(register nflogdataobject *nd) {
   // basically equivalent to dict(nd)
   PyObject *dict = PyDict_New();
-  PyDict_MergeFromSeq2(dict, (PyObject *)nd, 0);
+  if (!dict) { return NULL; }
+  if (PyDict_MergeFromSeq2(dict, (PyObject *)nd, 0) != 0) {
+    Py_DECREF(dict);
+    return NULL;
+  }
+
   // format the dict with the name of the type
   PyObject *repr = PyUnicode_FromFormat("<%s %S>", _PyType_Name(Py_TYPE(nd)), dict);
   Py_DECREF(dict);

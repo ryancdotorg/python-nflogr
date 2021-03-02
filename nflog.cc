@@ -98,7 +98,8 @@ static void fifo_empty(register nflogobject *n) {
 // steals reference to o
 static PyObject * entuple(PyObject *o) {
   PyObject *tup = PyTuple_New(1);
-  PyTuple_SetItem(tup, 0, o);
+  if (!tup) { return NULL; }
+  PyTuple_SET_ITEM(tup, 0, o);
   return tup;
 }
 
@@ -226,10 +227,10 @@ static int NflogQueue(struct nflog_g_handle *, struct nfgenmsg *, struct nflog_d
 }
 
 PyObject * new_nflogobject(struct nflog_handle *h, struct nflog_g_handle *gh, int group) {
-  if (PyType_Ready(&Nflogtype) < 0) { return NULL; }
+  if (PyType_Ready(&Nflogtype) != 0) { return NULL; }
 
   nflogobject *n = PyObject_New(nflogobject, &Nflogtype);
-  if (n == NULL) { return NULL; }
+  if (!n) { return NULL; }
 
   // initialize values
   n->h = h; n->gh = gh;
@@ -280,7 +281,10 @@ static PyObject * _recv(register nflogobject *n) {
       for (i = 0, count = PyList_Size(list); i < count; ++i) {
         item = PyList_GetItem(list, i);
         nd = NflogDatatype.tp_new(&NflogDatatype, entuple(item), Py_None);
-        if (!nd || fifo_push(n, nd) != 0) { return NULL; }
+        if (!nd || fifo_push(n, nd) != 0) {
+          Py_DECREF(list);
+          return NULL;
+        }
       }
       Py_DECREF(list);
       return fifo_shift(n);
@@ -355,7 +359,7 @@ static PyObject * n_next(register nflogobject *n, PyObject *args) {
       PyErr_SetString(PyExc_TypeError, "argument must be callable if not `None`");
       return NULL;
     }
-    if (!(nd = _recv(n))) { return nd; }
+    if (!(nd = _recv(n))) { return NULL; }
     nd = entuple(nd);
     map = PyObject_CallObject(PyFn, nd);
     Py_DECREF(nd);

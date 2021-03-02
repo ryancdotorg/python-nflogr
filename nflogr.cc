@@ -183,7 +183,7 @@ static struct PyModuleDef nflogr_module = {
 
 #define MOD_ADD_OBJ(M, N, O) \
   Py_XINCREF(O); \
-  if (PyModule_AddObject(M, N, (PyObject *)(O)) < 0) { \
+  if (PyModule_AddObject(M, N, (PyObject *)(O)) != 0) { \
     Py_XDECREF(O); \
     Py_DECREF(M); \
     return NULL; \
@@ -200,10 +200,10 @@ PyMODINIT_FUNC PyInit_nflogr(void) {
   NflogClosedError = PyErr_NewException("nflogr.NflogClosedError", NflogError, NULL);
   MOD_ADD_OBJ(m, "NflogClosedError", NflogClosedError);
 
-  if (PyType_Ready(&Nflogtype) < 0) { return NULL; }
+  if (PyType_Ready(&Nflogtype) != 0) { return NULL; }
   MOD_ADD_OBJ(m, _PyType_Name(&Nflogtype), &Nflogtype);
 
-  if (PyType_Ready(&NflogDatatype) < 0) { return NULL; }
+  if (PyType_Ready(&NflogDatatype) != 0) { return NULL; }
   MOD_ADD_OBJ(m, _PyType_Name(&NflogDatatype), &NflogDatatype);
 
   if (nflog_add_protos(m) != 0) { goto nflogr_cleanup; }
