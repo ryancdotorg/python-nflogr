@@ -7,6 +7,9 @@ extern "C" {
 PyObject * PyInit_nflog(void);
 }
 
+// helpers
+int _nflogr_tristate(PyObject *o, int *x);
+
 // exception objects
 extern PyObject *NflogError;
 extern PyObject *NflogClosedError;

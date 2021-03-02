@@ -52,26 +52,27 @@ typedef struct {
 static PyObject * _NfadAsTuple(struct nflog_data *nfad);
 static struct nflog_data * _TupleAsNfad(PyObject *tup);
 
-static void ndi_dealloc(register nflogdataiter *ndi) {
-  Py_DECREF(ndi->nd);
-  PyObject_Del(ndi);
-}
-
-static void nflogdata_dealloc(register nflogdataobject *nd) {
+static void nd_dealloc(register nflogdataobject *nd) {
   Py_XDECREF(nd->indev);
   Py_XDECREF(nd->physindev);
   Py_XDECREF(nd->outdev);
   Py_XDECREF(nd->physoutdev);
+
   Py_XDECREF(nd->uid);
   Py_XDECREF(nd->gid);
+
   Py_XDECREF(nd->hwhdr);
   Py_XDECREF(nd->payload);
+
   Py_XDECREF(nd->prefix);
+
   Py_XDECREF(nd->raw);
   Py_XDECREF(nd->devnames);
+
   PyObject_Del(nd);
 }
 
+// wraps if_indextoname with fallback behaviour for failure
 static PyObject * _if_indextoname(uint32_t idx) {
   char buf[IF_NAMESIZE] = {0};
   if (!if_indextoname(idx, buf)) {
@@ -80,11 +81,13 @@ static PyObject * _if_indextoname(uint32_t idx) {
   return Py_BuildValue("s", buf);
 }
 
+// look up device name from index with mock support
 static PyObject * _devname(register nflogdataobject *nd, uint32_t idx) {
   if (idx) {
-    PyObject *devname, *devidx;
+    PyObject *devname;
     // if devnames is non-null, check there first
     if (nd->devnames) {
+      PyObject *devidx;
       if (!(devidx = Py_BuildValue("k", idx))) { return NULL; }
       if ((devname = PyDict_GetItem(nd->devnames, devidx))) {
         // found
@@ -124,11 +127,11 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
   struct timeval tv;
   if (nflog_get_timestamp(nfad, &tv) != 0) {
     PyErr_SetString(NflogError, "no timestamp data");
-    PyObject_Del(nd);
+    nd_dealloc(nd);
     return NULL;
   }
   if (_PyTime_FromTimeval(&tp, &tv) != 0) {
-    PyObject_Del(nd);
+    nd_dealloc(nd);
     return NULL;
   }
   nd->timestamp = _PyTime_AsSecondsDouble(tp);
@@ -150,30 +153,43 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
   // uid/gid
   uint32_t id;
   if (nflog_get_uid(nfad, &id) == 0) {
-    nd->uid = Py_BuildValue("k", id);
+    if (!(nd->uid = Py_BuildValue("k", id))) {
+      nd_dealloc(nd);
+      return NULL;
+    }
   } else {
     nd->uid = Py_None;
     Py_INCREF(Py_None);
   }
   if (nflog_get_gid(nfad, &id) == 0) {
-    nd->gid = Py_BuildValue("k", id);
+    if (!(nd->gid = Py_BuildValue("k", id))) {
+      nd_dealloc(nd);
+      return NULL;
+    }
   } else {
     nd->gid = Py_None;
     Py_INCREF(Py_None);
   }
 
-  // hwhdr
   char *hwhdr = nflog_get_msg_packet_hwhdr(nfad);
   size_t hwhdr_sz = nflog_get_msg_packet_hwhdrlen(nfad);
-  nd->hwhdr = Py_BuildValue("y#", hwhdr, hwhdr_sz);
+  if (!(nd->hwhdr = Py_BuildValue("y#", hwhdr, hwhdr_sz))) {
+    nd_dealloc(nd);
+    return NULL;
+  }
 
-  // payload
   char *payload;
   int payload_sz = nflog_get_payload(nfad, &payload);
-  nd->payload = Py_BuildValue("y#", payload, payload_sz);
+  if (!(nd->payload = Py_BuildValue("y#", payload, payload_sz))) {
+    nd_dealloc(nd);
+    return NULL;
+  }
 
   char *prefix = nflog_get_prefix(nfad);
-  nd->prefix = Py_BuildValue("s", prefix);
+  if (!(nd->prefix = Py_BuildValue("s", prefix))) {
+    nd_dealloc(nd);
+    return NULL;
+  }
 
   return (PyObject *)nd;
 }
@@ -240,6 +256,8 @@ static PyObject * nd_get_prefix(register nflogdataobject *nd, void *) {
 }
 
 static PyObject * nd_get__raw(register nflogdataobject *nd, void *) {
+  if (!(nd->devnames)) { Py_RETURN_NONE; }
+
   PyObject *tup;
   if (!(tup = PyTuple_New(2))) { return NULL; }
 
@@ -252,6 +270,7 @@ static PyObject * nd_get__raw(register nflogdataobject *nd, void *) {
   return tup;
 }
 
+// all getters return new references
 static PyGetSetDef nd_getset[] = {
   {"proto",      (getter)nd_get_proto,      NULL, NULL, NULL},
   {"hwtype",     (getter)nd_get_hwtype,     NULL, NULL, NULL},
@@ -271,8 +290,6 @@ static PyGetSetDef nd_getset[] = {
 };
 
 static PyMethodDef nd_methods[] = {
-//  {"__getstate__", (PyCFunction) nd__enter__, METH_NOARGS, NULL},
-//  {"__setstate__", (PyCFunction) nd__enter__, METH_NOARGS, NULL},
   {NULL, NULL}
 };
 
@@ -289,7 +306,11 @@ static PyObject * _NfadAsTuple(struct nflog_data *nfad) {
   for (i = 0; i < NFULA_MAX; ++i) {
     nfa = nfad->nfa[i];
     if (nfa) {
-      PyTuple_SET_ITEM(tup, i, Py_BuildValue("y#", (((char *)(nfa)) + NFA_LENGTH(0)), nfa->nfa_len));
+      PyObject *bytes;
+      if (!(bytes = Py_BuildValue("y#", (((char *)(nfa)) + NFA_LENGTH(0)), nfa->nfa_len))) {
+        return NULL;
+      }
+      PyTuple_SET_ITEM(tup, i, bytes);
     } else {
       Py_INCREF(Py_None);
       PyTuple_SET_ITEM(tup, i, Py_None);
@@ -309,14 +330,14 @@ static struct nflog_data * _TupleAsNfad(PyObject *tup) {
   // first loop - calculate size required
   for (i = 0; i < NFULA_MAX && i < n; ++i) {
     bytes = PyTuple_GetItem(tup, i);
-    PyBytes_Check(bytes);
-    if (bytes == Py_None) {
+    if (!bytes) {
+      return NULL;
+    } else if (bytes == Py_None) {
       continue;
     } else if (!PyBytes_Check(bytes)) {
       PyErr_SetString(PyExc_TypeError, "tuple memeber not bytes or None");
       return NULL;
-    }
-    if ((len = PyBytes_Size(bytes)) > 65535) {
+    } else if ((len = PyBytes_Size(bytes)) > 65535) {
       PyErr_SetString(PyExc_ValueError, "tuple members must be at most 65535 bytes");
       return NULL;
     }
@@ -384,25 +405,71 @@ PyObject * nd__repr__(register nflogdataobject *nd) {
 }
 
 PyObject * nd__new__(PyTypeObject *subtype, PyObject *args, PyObject *) {
-  PyObject *o, *dict, *tup;
+  PyObject *dict, *tup;
 
-  if (!PyArg_ParseTuple(args, "O:__new__", &o)) { return NULL; }
+  if (!PyArg_ParseTuple(args, "OO:__new__", &dict, &tup)) { return NULL; }
 
-  if (!PyTuple_Check(o) || PyTuple_Size(o) != 2) {
-    PyErr_SetString(PyExc_TypeError, "argument must be a two item tuple");
+  if (!PyDict_Check(dict) || !PyTuple_Check(tup)) {
+    PyErr_SetString(PyExc_TypeError, "arguments must be (dict, tuple)");
     return NULL;
   }
 
-  if (!PyDict_Check(dict = PyTuple_GetItem(o, 0))
-  || !PyTuple_Check(tup = PyTuple_GetItem(o, 1))) {
-    PyErr_SetString(PyExc_TypeError, "argument must be a (dict, tuple)");
-    return NULL;
-  }
-
+  // nflog_handle_packet normally takes care of freeing the nflog_data struct
+  // after creating it and sending it to the callback, and since we're creating
+  // the struct outselves here, we also need to free it ourselves.
   struct nflog_data *nfad = _TupleAsNfad(tup);
   if (!nfad) { return NULL; }
   Py_INCREF(dict);
-  return new_nflogdataobject(nfad, dict);
+  PyObject *nd = new_nflogdataobject(nfad, dict);
+  free(nfad);
+  return nd;
+}
+
+PyTypeObject NflogDatatype {
+  PyVarObject_HEAD_INIT(&PyType_Type, 0)
+  "nflogr.NflogData",        /* tp_name */
+  sizeof(nflogdataobject),   /* tp_basicsize */
+  0,                         /* tp_itemsize */
+  (destructor)nd_dealloc,    /* tp_dealloc */
+  0,                         /* tp_print */
+  0,                         /* tp_getattr */
+  0,                         /* tp_setattr */
+  0,                         /* tp_reserved */
+  (reprfunc)nd__repr__,      /* tp_repr */
+  0,                         /* tp_as_number */
+  0,                         /* tp_as_sequence */
+  0,                         /* tp_as_mapping */
+  0,                         /* tp_hash */
+  0,                         /* tp_call */
+  (reprfunc)nd__str__,       /* tp_str */
+  0,                         /* tp_getattro */
+  0,                         /* tp_setattro */
+  0,                         /* tp_as_buffer */
+  Py_TPFLAGS_DEFAULT,        /* tp_flags */
+  NULL,                      /* tp_doc */
+  0,                         /* tp_traverse */
+  0,                         /* tp_clear */
+  0,                         /* tp_richcompare */
+  0,                         /* tp_weaklistoffset */
+  (getiterfunc)nd__iter__,   /* tp_iter */
+  0,                         /* tp_iternext */
+  nd_methods,                /* tp_methods */
+  0,                         /* tp_members */
+  nd_getset,                 /* tp_getset */
+  0,                         /* tp_base */
+  0,                         /* tp_dict */
+  0,                         /* tp_descr_get */
+  0,                         /* tp_descr_set */
+  0,                         /* tp_dictoffset */
+  0,                         /* tp_init */
+  0,                         /* tp_alloc */
+  (newfunc)nd__new__,        /* tp_new */
+};
+
+// iterator helper class
+static void ndi_dealloc(register nflogdataiter *ndi) {
+  Py_DECREF(ndi->nd);
+  PyObject_Del(ndi);
 }
 
 PyObject * ndi__iter__(register nflogdataiter *ndi) {
@@ -413,6 +480,7 @@ PyObject * ndi__iter__(register nflogdataiter *ndi) {
 PyObject * ndi__next__(register nflogdataiter *ndi) {
   char *name;
   getter *get;
+  PyObject *val;
 
   do {
     name = (char *)(nd_getset[ndi->n].name);
@@ -423,55 +491,20 @@ PyObject * ndi__next__(register nflogdataiter *ndi) {
     }
 
     ndi->n += 1;
+    // skip over attributes starting with an underscore
   } while (name[0] == '_');
 
-  return Py_BuildValue("(sN)", name, (*get)((PyObject *)(ndi->nd), NULL));
-}
+  // call the getter, passing along any failures
+  if (!(val = (*get)((PyObject *)(ndi->nd), NULL))) {
+    return NULL;
+  }
 
-PyTypeObject NflogDatatype {
-  PyVarObject_HEAD_INIT(&PyType_Type, 0)
-  "NflogData",               /* tp_name */
-  sizeof(nflogdataobject),        /* tp_basicsize */
-  0,                         /* tp_itemsize */
-  (destructor)nflogdata_dealloc, /* tp_dealloc */
-  0,                         /* tp_print */
-  0,                         /* tp_getattr */
-  0,                         /* tp_setattr */
-  0,                         /* tp_reserved */
-  (reprfunc)nd__repr__,       /* tp_repr */
-  0,                         /* tp_as_number */
-  0,                         /* tp_as_sequence */
-  0,                         /* tp_as_mapping */
-  0,                         /* tp_hash */
-  0,                         /* tp_call */
-  (reprfunc)nd__str__,        /* tp_str */
-  0,                         /* tp_getattro */
-  0,                         /* tp_setattro */
-  0,                         /* tp_as_buffer */
-  Py_TPFLAGS_DEFAULT,        /* tp_flags */
-  NULL,                      /* tp_doc */
-  0,                         /* tp_traverse */
-  0,                         /* tp_clear */
-  0,                         /* tp_richcompare */
-  0,                         /* tp_weaklistoffset */
-  (getiterfunc)nd__iter__,    /* tp_iter */
-  0,                         /* tp_iternext */
-  nd_methods,                 /* tp_methods */
-  0,                         /* tp_members */
-  nd_getset,                  /* tp_getset */
-  0,                         /* tp_base */
-  0,                         /* tp_dict */
-  0,                         /* tp_descr_get */
-  0,                         /* tp_descr_set */
-  0,                         /* tp_dictoffset */
-  0,                         /* tp_init */
-  0,                         /* tp_alloc */
-  (newfunc)nd__new__,         /* tp_new */
-};
+  return Py_BuildValue("(sN)", name, val);
+}
 
 PyTypeObject NflogDataItertype {
   PyVarObject_HEAD_INIT(&PyType_Type, 0)
-  "NflogDataIter",           /* tp_name */
+  "nflogr.NflogDataIter",    /* tp_name */
   sizeof(nflogdataiter),     /* tp_basicsize */
   0,                         /* tp_itemsize */
   (destructor)ndi_dealloc,   /* tp_dealloc */

@@ -19,6 +19,19 @@ extern "C" {
 PyObject *NflogError;
 PyObject *NflogClosedError;
 
+int _nflogr_tristate(PyObject *o, int *x) {
+  if (o == Py_True) {
+    *x = 1;
+  } else if (o == Py_False) {
+    *x = 0;
+  } else if (o != Py_None)  {
+    PyErr_SetString(PyExc_ValueError, "value must be `True`, `False` or `None`");
+    return -1;
+  }
+
+  return 0;
+}
+
 static int _nflog_bind_pf(struct nflog_handle *h, u_int16_t pf) {
   // XXX Some example code tries to do nflog_unbind_pf first, but the docs say
   // it is dangerous, prone to breaking other software, and should not be used.
@@ -48,7 +61,7 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
   unsigned char copymode = NFULNL_COPY_PACKET;
   double timeout = 0.00;
 
-  static const char *kwlist[] = {
+  const char *kwlist[] = {
     "group", "copymode", "timeout", "qthresh", "nlbufsiz", "enobufs",
     NULL
   };
@@ -59,6 +72,7 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
     return NULL;
   }
 
+  // argument range validation
   if (group < 0 || group > 65535) {
     PyErr_SetString(PyExc_ValueError, "group value must be in range [0,65535]");
     return NULL;
@@ -90,6 +104,7 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
   if (_nflog_bind_pf(h, PF_INET) != 0) { goto l_open_cleanup_h; }
   if (_nflog_bind_pf(h, PF_INET6) != 0) { goto l_open_cleanup_h; }
 
+  // bind group
   errno = 0;
   if (!(gh = nflog_bind_group(h, group))) {
     if (errno == EPERM) {
@@ -109,6 +124,7 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
     goto l_open_cleanup_h;
   }
 
+  // set options
   if (nflog_set_mode(gh, copymode, 0xffff) != 0) {
     PyErr_SetString(PyExc_OSError, "could not set packet copy mode");
     goto l_open_cleanup_gh;
@@ -139,6 +155,7 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
 
   return new_nflogobject(h, gh, group);
 
+  // error handling
 l_open_cleanup_gh:
   nflog_unbind_group(gh);
 l_open_cleanup_h:
@@ -149,7 +166,8 @@ l_open_cleanup_h:
 static PyObject * l__from_iter(PyObject *self, PyObject *args) {
   PyObject *iter;
 
-  if (!PyArg_ParseTuple(args, "O:_from_iter", &iter) || !PyIter_Check(iter)) {
+  if (!PyArg_ParseTuple(args, "O:_from_iter", &iter)) { return NULL; }
+  if (!PyIter_Check(iter)) {
     PyErr_SetString(PyExc_TypeError, "iter must be an interator");
     return NULL;
   }
@@ -167,8 +185,8 @@ static PyMethodDef nflogrMethods[] = {
   {"_from_iter", (PyCFunction)l__from_iter, METH_VARARGS, PyDoc_STR(
     "_from_iter($module, iterator, /)\n"
     "--\n\n"
-    "Open a mock nflog 'listener' which pulls messages from an iterator.\n"
-    "INTENDED FOR DEBUGGING/TESTING ONLY!"
+    "INTENDED FOR DEBUGGING/TESTING ONLY!\n\n"
+    "Open a mock nflog 'listener' which pulls messages from an iterator."
   )},
   {NULL, NULL} /* sentinel */
 };

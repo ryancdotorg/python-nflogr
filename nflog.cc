@@ -19,7 +19,7 @@ extern "C" {
 #include "nflogdata.h"
 #include "nflogr.h"
 
-// linked list object
+// internal fifo object (singly linked list)
 typedef struct fifo_s {
   PyObject *o;
   struct fifo_s *next;
@@ -38,12 +38,14 @@ typedef struct {
   int raw;
 } nflogobject;
 
+// append to fifo, steals refrence to o, returns 0 on success, -1 on failure
 static int fifo_push(register nflogobject *n, PyObject *o) {
   fifo_t *entry = (fifo_t *)malloc(sizeof(fifo_t));
   if (!entry) {
     PyErr_NoMemory();
     return -1;
   } else if (!o) {
+    // don't push a null pointer
     return -1;
   }
 
@@ -62,6 +64,7 @@ static int fifo_push(register nflogobject *n, PyObject *o) {
   return 0;
 }
 
+// take from fifo, returns owned reference, can't fail
 static PyObject * fifo_shift(register nflogobject *n) {
   if (!n->head) { Py_RETURN_NONE; }
 
@@ -82,6 +85,7 @@ static PyObject * fifo_shift(register nflogobject *n) {
   return o;
 }
 
+// empties the fifo, decrementing refrence count of contained objects
 static void fifo_empty(register nflogobject *n) {
   PyObject *o;
   for (;;) {
@@ -89,13 +93,12 @@ static void fifo_empty(register nflogobject *n) {
     if (o == Py_None) {
       Py_DECREF(o);
       break;
-    } else {
-      Py_DECREF(o);
     }
+    Py_DECREF(o);
   }
 }
 
-// steals reference to o
+// steals reference to o, returns it enclosed in a new tuple
 static PyObject * entuple(PyObject *o) {
   PyObject *tup = PyTuple_New(1);
   if (!tup) { return NULL; }
@@ -160,16 +163,16 @@ static PyMethodDef n_methods[] = {
       "get nflog group id"
   )},
   {"_raw", (PyCFunction) n__raw, METH_VARARGS, PyDoc_STR(
-      "_raw($self, set=None, /)\n"
+      "_raw($self, value=None, /)\n"
       "--\n\n"
-      "query/enable/disable capture of raw nflog data\n"
-      "INTENDED FOR DEBUGGING/TESTING ONLY!"
+      "INTENDED FOR DEBUGGING/TESTING ONLY!\n\n"
+      "query/enable/disable capture of raw nflog data"
   )},
   {"_recv_raw", (PyCFunction) n__recv_raw, METH_NOARGS, PyDoc_STR(
       "_recv_raw($self, /)\n"
       "--\n\n"
-      "receive raw nflog data\n"
-      "INTENDED FOR DEBUGGING/TESTING ONLY!"
+      "INTENDED FOR DEBUGGING/TESTING ONLY!\n\n"
+      "receive raw nflog data"
   )},
   {"fileno", (PyCFunction) n_fileno, METH_NOARGS, NULL},
   {"__enter__", (PyCFunction) n__enter__, METH_NOARGS, NULL},
@@ -431,10 +434,10 @@ static PyObject * n_getgroup(register nflogobject *n, PyObject *) {
 static PyObject * n__raw(register nflogobject *n, PyObject *args) {
   NFLOG_CHECK(n);
 
-  int raw = -1;
+  PyObject *value = Py_None;
 
-  PyArg_ParseTuple(args, "|p:_raw", &raw);
-  if (raw >= 0) { n->raw = raw; }
+  PyArg_ParseTuple(args, "|O:_raw", &value);
+  if (_nflogr_tristate(value, &(n->raw)) != 0) { return NULL; }
 
   return PyBool_FromLong(n->raw);
 }
