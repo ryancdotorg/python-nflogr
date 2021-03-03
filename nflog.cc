@@ -283,7 +283,7 @@ static PyObject * _recv(register nflogobject *n) {
     if ((list = PyIter_Next(n->mock))) {
       for (i = 0, count = PyList_Size(list); i < count; ++i) {
         item = PyList_GetItem(list, i);
-        nd = NflogDatatype.tp_new(&NflogDatatype, entuple(item), Py_None);
+        nd = NflogDatatype.tp_new(&NflogDatatype, item, Py_None);
         if (!nd || fifo_push(n, nd) != 0) {
           Py_DECREF(list);
           return NULL;

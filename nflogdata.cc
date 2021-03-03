@@ -7,11 +7,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <endian.h>
 #include <netinet/in.h>
 #include <net/if.h>
 
 extern "C" {
 #include <libnetfilter_log/libnetfilter_log.h>
+#include <libnfnetlink/linux_nfnetlink_compat.h>
 }
 
 #include "nflogr.h"
@@ -51,6 +53,8 @@ typedef struct {
 
 static PyObject * _NfadAsTuple(struct nflog_data *nfad);
 static struct nflog_data * _TupleAsNfad(PyObject *tup);
+static PyObject * _PyLong_AsBigEndian(PyObject *pylong, unsigned char width);
+static PyObject * _ull_AsBigEndian(unsigned long long val, unsigned char width);
 
 static void nd_dealloc(register nflogdataobject *nd) {
   Py_XDECREF(nd->indev);
@@ -255,21 +259,6 @@ static PyObject * nd_get_prefix(register nflogdataobject *nd, void *) {
   return nd->prefix;
 }
 
-static PyObject * nd_get__raw(register nflogdataobject *nd, void *) {
-  if (!(nd->devnames)) { Py_RETURN_NONE; }
-
-  PyObject *tup;
-  if (!(tup = PyTuple_New(2))) { return NULL; }
-
-  Py_INCREF(nd->devnames);
-  PyTuple_SET_ITEM(tup, 0, nd->devnames);
-
-  Py_INCREF(nd->raw);
-  PyTuple_SET_ITEM(tup, 1, nd->raw);
-
-  return tup;
-}
-
 // all getters return new references
 static PyGetSetDef nd_getset[] = {
   {"proto",      (getter)nd_get_proto,      NULL, NULL, NULL},
@@ -285,11 +274,231 @@ static PyGetSetDef nd_getset[] = {
   {"hwhdr",      (getter)nd_get_hwhdr,      NULL, NULL, NULL},
   {"payload",    (getter)nd_get_payload,    NULL, NULL, NULL},
   {"prefix",     (getter)nd_get_prefix,     NULL, NULL, NULL},
-  {"_raw",       (getter)nd_get__raw,       NULL, NULL, NULL},
   {NULL}
 };
 
+// generate serialization structures for device names, returns -1 on failure
+static int _set_dev(
+  PyObject *devnames, PyObject *raw, PyObject *ifnames[], PyObject *dev,
+  int ifcount, Py_ssize_t n
+) {
+  if (dev == Py_None) { return 0; }
+
+  // loop over ifnames looking for a matching name
+  int i = 0, rv;
+  for (;;) {
+    if (i > ifcount) {
+      PyErr_SetString(PyExc_RuntimeError, "too many interfaces!?");
+      return -1;
+    } else if (i == ifcount) {
+      ifnames[i] = dev;
+      break;
+    } else if ((rv = PyUnicode_Compare(ifnames[i], dev)) == 0) {
+      break;
+    } else if (rv == -1) {
+      PyGILState_STATE gil = PyGILState_Ensure();
+      // needs GIL
+      if (PyErr_Occurred()) {
+        PyGILState_Release(gil);
+        return -1;
+      }
+      PyGILState_Release(gil);
+    }
+    ++i;
+  }
+
+  i = i + 1;  // device indexes start at 1
+
+  // save the results
+  PyObject *item, *devidx;
+  if (!(item = _ull_AsBigEndian(i, 4))) { return -1; }
+  PyTuple_SET_ITEM(raw, n, item);
+  if (!(devidx = Py_BuildValue("k", i))) { return -1; }
+  if (PyDict_SetItem(devnames, devidx, dev) != 0) { return -1; }
+  Py_INCREF(dev);
+
+  return i;
+}
+
+// get raw data, aliased as __getnewargs to enable pickling
+PyDoc_STRVAR(nd__get_raw_doc,
+"_get_raw($self, useraw=None, /)\n"
+"--\n\n"
+"INTENDED FOR DEBUGGING/TESTING ONLY!\n\n"
+"get raw data, can be passed to pass to __new__ to recreate this object\n"
+"\n"
+"  useraw\n"
+"   If `None`, use saved raw data if available.\n"
+"   If `False`, don\'t use saved raw data.\n"
+"   If `True`, return saved raw data or `None` if unavailable."
+);
+static PyObject * nd__get_raw(register nflogdataobject *nd, PyObject *args) {
+  // by default, use the raw data if it exists
+  int useraw = !!(nd->devnames);
+
+  PyObject *ret, *devnames, *raw, *item = Py_None;
+  if (!PyArg_ParseTuple(args, "|O:__getnewargs__", &item)) { return NULL; }
+  if (_nflogr_tristate(item, &useraw) != 0) { return NULL; }
+
+  if (!(ret = PyTuple_New(2))) { return NULL; }
+
+  if (useraw) {
+    if (!(nd->devnames)) {
+      Py_DECREF(ret);
+      Py_RETURN_NONE;
+    }
+
+    Py_INCREF(nd->devnames);
+    PyTuple_SET_ITEM(ret, 0, nd->devnames);
+
+    Py_INCREF(nd->raw);
+    PyTuple_SET_ITEM(ret, 1, nd->raw);
+
+    return ret;
+  }
+
+  // not using raw data, so generate a struct from the data we saved
+  // XXX THIS WILL NOT MATCH EXACTLY!
+  if (!(devnames = PyDict_New())) {
+    Py_DECREF(ret);
+    return NULL;
+  }
+
+  if (!(raw = PyTuple_New(NFULA_MAX))) {
+    Py_DECREF(devnames);
+    Py_DECREF(ret);
+    return NULL;
+  }
+
+  // NFULA_PACKET_HDR - construct from nd->proto
+  if (nd->proto) {
+    char packet_hdr[4];
+    packet_hdr[0] = ((nd->proto) >> 8) & 255;
+    packet_hdr[1] = (nd->proto) & 255;
+    if (!(item = Py_BuildValue("y#", packet_hdr, 4))) { goto nd__get_raw_cleanup; }
+    PyTuple_SET_ITEM(raw, NFULA_PACKET_HDR-1, item);
+  }
+
+  // NFULA_MARK - construct from nd->nfmark
+  if (!(item = _ull_AsBigEndian(nd->nfmark, 4))) { goto nd__get_raw_cleanup; }
+  PyTuple_SET_ITEM(raw, NFULA_MARK-1, item);
+
+  {
+    // NFULA_TIMESTAMP - construct from nd->timestamp
+    struct nfulnl_msg_packet_timestamp uts;
+    double sec = nd->timestamp;
+    uint64_t usec = ((0.0000005 + sec) - ((uint64_t)sec)) * 1000000.0;
+    if (usec > 999999) { usec = 999999; }  // just in case...
+    uts.sec = htobe64(sec);
+    uts.usec = htobe64(usec);
+    if (!(item = Py_BuildValue("y#", (char *)(&uts), sizeof(uts)))) {
+      goto nd__get_raw_cleanup;
+    }
+    PyTuple_SET_ITEM(raw, NFULA_TIMESTAMP-1, item);
+  }
+
+  {
+    // NFULA_IFINDEX_INDEV - construct from nd->indev + ifnames
+    // NFULA_IFINDEX_PHYSINDEV - construct from nd->physindev + ifnames
+    // NFULA_IFINDEX_OUTDEV - construct from nd->outdev + ifnames
+    // NFULA_IFINDEX_PHYSOUTDEV - construct from nd->physoutdev + ifnames
+    int ifcount = 0;
+    PyObject *ifnames[4];
+    if ((ifcount = _set_dev(
+      devnames, raw, ifnames, nd->indev, ifcount, NFULA_IFINDEX_INDEV-1)
+    ) < 0) { goto nd__get_raw_cleanup; }
+    if ((ifcount = _set_dev(
+      devnames, raw, ifnames, nd->physindev, ifcount, NFULA_IFINDEX_PHYSINDEV-1)
+    ) < 0) { goto nd__get_raw_cleanup; }
+    if ((ifcount = _set_dev(
+      devnames, raw, ifnames, nd->outdev, ifcount, NFULA_IFINDEX_OUTDEV-1)
+    ) < 0) { goto nd__get_raw_cleanup; }
+    if ((ifcount = _set_dev(
+      devnames, raw, ifnames, nd->physoutdev, ifcount, NFULA_IFINDEX_PHYSOUTDEV-1)
+    ) < 0) { goto nd__get_raw_cleanup; }
+  }
+
+  // NFULA_HWADDR - not supported
+
+  {
+    // NFULA_PAYLOAD - construct from nd->payload
+    // nflog_get_payload discards NFA_LENGTH(0) bytes, so we need to add padding
+    char *payload_data, *payload_pad;
+    Py_ssize_t payload_size;
+    if (PyBytes_AsStringAndSize(nd->payload, &payload_data, &payload_size) != 0) {
+      goto nd__get_raw_cleanup;
+    }
+    if (!(payload_pad = (char *)calloc(1, payload_size + NFA_LENGTH(0)))) {
+      PyErr_NoMemory();
+      goto nd__get_raw_cleanup;
+    }
+    memcpy(payload_pad, payload_data, payload_size);
+    if (!(item = Py_BuildValue("y#", payload_pad, payload_size + NFA_LENGTH(0)))) {
+       goto nd__get_raw_cleanup;
+    }
+    PyTuple_SET_ITEM(raw, NFULA_PAYLOAD-1, item);
+  }
+
+  {
+    // NFULA_PREFIX - construction from nd->prefix
+    Py_ssize_t pfxlen;
+    char *pfxstr;
+    if (!(pfxstr = (char *)PyUnicode_AsUTF8AndSize(nd->prefix, &pfxlen))) {
+      goto nd__get_raw_cleanup;
+    }
+    if (!(item = Py_BuildValue("y#", pfxstr, pfxlen + 1))) { goto nd__get_raw_cleanup; }
+    PyTuple_SET_ITEM(raw, NFULA_PREFIX-1, item);
+  }
+
+  // NFULA_UID - construct from nd->uid
+  if (!(item = _PyLong_AsBigEndian(nd->uid, 4))) { goto nd__get_raw_cleanup; }
+  PyTuple_SET_ITEM(raw, NFULA_UID-1, item);
+
+  // NFULA_SEQ - not supported
+  // NFULA_SEQ_GLOBAL - not supported
+
+  // NFULA_GID - construct from nd->gid
+  if (!(item = _PyLong_AsBigEndian(nd->gid, 4))) { goto nd__get_raw_cleanup; }
+  PyTuple_SET_ITEM(raw, NFULA_GID-1, item);
+
+  // NFULA_HWTYPE - construct from nd->hwtype
+  if (!(item = _ull_AsBigEndian(nd->hwtype, 2))) { goto nd__get_raw_cleanup; }
+  PyTuple_SET_ITEM(raw, NFULA_HWTYPE-1, item);
+
+  // NFULA_HWHEADER - construct from nd->hwhdr
+  Py_INCREF(nd->hwhdr);
+  PyTuple_SET_ITEM(raw, NFULA_HWHEADER-1, nd->hwhdr);
+
+  // NFULA_HWLEN - construct from nd->hwhdr
+  if (!(item = _ull_AsBigEndian(PyBytes_Size(nd->hwhdr), 2))) { goto nd__get_raw_cleanup; }
+  PyTuple_SET_ITEM(raw, NFULA_HWLEN-1, item);
+
+  // set any remaining values in the tuple to `None`
+  for (int i = 0; i < NFULA_MAX; ++i) {
+    if (!(item = PyTuple_GET_ITEM(raw, i))) {
+      Py_INCREF(Py_None);
+      PyTuple_SET_ITEM(raw, i, Py_None);
+    }
+  }
+
+  PyTuple_SET_ITEM(ret, 0, devnames);
+  PyTuple_SET_ITEM(ret, 1, raw);
+
+  return ret;
+
+nd__get_raw_cleanup:
+  Py_DECREF(raw);
+  Py_DECREF(devnames);
+  Py_DECREF(ret);
+  return NULL;
+}
+
 static PyMethodDef nd_methods[] = {
+  {"_get_raw", (PyCFunction) nd__get_raw, METH_VARARGS, nd__get_raw_doc},
+  {"__getnewargs__", (PyCFunction) nd__get_raw, METH_VARARGS, PyDoc_STR(
+    "__getnewargs__($self, /)\n"
+    "--\n\n"
+  )},
   {NULL, NULL}
 };
 
@@ -371,6 +580,51 @@ static struct nflog_data * _TupleAsNfad(PyObject *tup) {
   }
 
   return (struct nflog_data *)nfad;
+}
+
+static PyObject * _PyLong_AsBigEndian(PyObject *pylong, unsigned char width) {
+  if (pylong == Py_None) { Py_RETURN_NONE; }
+
+  unsigned long long val = PyLong_AsUnsignedLong(pylong);
+  if (val == ((unsigned long long)-1)) {
+    PyGILState_STATE gil = PyGILState_Ensure();
+    // needs GIL
+    if (PyErr_Occurred()) {
+      PyGILState_Release(gil);
+      return NULL;
+    }
+    PyGILState_Release(gil);
+  }
+
+  return _ull_AsBigEndian(val, width);
+}
+
+static PyObject * _ull_AsBigEndian(unsigned long long val, unsigned char width) {
+  char buf[8];
+  int p = 0;
+  switch (width) {
+    case 8:
+      buf[p++] = (val >> 56) & 255;
+      buf[p++] = (val >> 48) & 255;
+      buf[p++] = (val >> 40) & 255;
+      buf[p++] = (val >> 32) & 255;
+    case 4:
+      buf[p++] = (val >> 24) & 255;
+      buf[p++] = (val >> 16) & 255;
+    case 2:
+      buf[p++] = (val >>  8) & 255;
+    case 1:
+      buf[p++] = val & 255;
+      break;
+    default:
+      PyErr_SetString(PyExc_ValueError, "width must be 8, 4, 2 or 1");
+      return NULL;
+  }
+
+  PyObject *bytes = Py_BuildValue("y#", buf, width);
+  if (!bytes) { return NULL; }
+
+  return bytes;
 }
 
 PyObject * nd__iter__(register nflogdataobject *nd) {
