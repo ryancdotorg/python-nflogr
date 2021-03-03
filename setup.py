@@ -60,7 +60,7 @@ make_constants('linux/if_ether.h', 'proto', r'.+ETH_P_(\S+)\s+(\S+).*')
 
 setup(
     name="nflogr",
-    version='0.0.4',
+    version='0.0.5',
     description='An object-oriented Python interface to read data via NFLOG',
     long_description=long_description,
     long_description_content_type='text/markdown',
