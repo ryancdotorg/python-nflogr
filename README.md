@@ -99,10 +99,10 @@ NflogData is iterable, so `dict(data)` will work as expected.
 
 ### Functions available on the handler
 
-##### `nflog.next(fn=None)`
+##### `nflog.next(wait=True)`
 
-Returns the next message (NflogData). If a function is passed as the first
-argument, the result of `fn(data)` will be returned instead.
+Returns the next message (NflogData). If wait is set to False, then rather than
+blocking, None will be returned immediately.
 
 ##### `nflog.loop(fn, count=-1)`
 
@@ -141,19 +141,6 @@ while True:
     """
     your code here
     """
-```
-
-### Process messages from a handler using a mapping function
-
-```python
-def nflog_mapper(data):
-    """
-    your code here
-    """
-    return result
-
-while True:
-    result = nflog.next(nflog_mapper)
 ```
 
 ### Process messages from a handler using a callback function

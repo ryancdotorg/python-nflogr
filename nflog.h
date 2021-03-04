@@ -4,7 +4,7 @@
 #define __nflog_h__
 
 PyObject * mock_nflogobject(PyObject *iter);
-PyObject * new_nflogobject(struct nflog_handle *h, struct nflog_g_handle *gh, int group);
+PyObject * new_nflogobject(struct nflog_handle *h, struct nflog_g_handle *gh, int group, int enobufs);
 
 extern PyTypeObject Nflogtype;
 

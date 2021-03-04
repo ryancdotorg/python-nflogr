@@ -295,14 +295,8 @@ static int _set_dev(
       break;
     } else if ((rv = PyUnicode_Compare(ifnames[i], dev)) == 0) {
       break;
-    } else if (rv == -1) {
-      PyGILState_STATE gil = PyGILState_Ensure();
-      // needs GIL
-      if (PyErr_Occurred()) {
-        PyGILState_Release(gil);
-        return -1;
-      }
-      PyGILState_Release(gil);
+    } else if (rv == -1 && _GIL_PyErr_Occurred()) {
+      return -1;
     }
     ++i;
   }
@@ -326,19 +320,29 @@ PyDoc_STRVAR(nd__get_raw_doc,
 "--\n\n"
 "INTENDED FOR DEBUGGING/TESTING ONLY!\n\n"
 "get raw data, can be passed to pass to __new__ to recreate this object\n"
+"\nArgs:\n"
+"    useraw (Union[bool, None]): Whether saved raw data should be used.\n"
+"        Defaults to None, which means 'use if available'.\n If False, a raw\n"
+"        data structure will be synthesized regardless of whether the original\n"
+"        is available. If True, then None will be returned if raw data wasn't\n"
+"        saved at instantiation.\n"
+"\nReturns:\n"
+"   Tuple[Dict[int, str], Tuple[Union[bytes, None]]]: a raw data structure\n"
 "\n"
-"  useraw\n"
-"   If `None`, use saved raw data if available.\n"
-"   If `False`, don\'t use saved raw data.\n"
-"   If `True`, return saved raw data or `None` if unavailable."
 );
 static PyObject * nd__get_raw(register nflogdataobject *nd, PyObject *args) {
+  PyObject *pyuseraw = Py_None;
+  if (!PyArg_ParseTuple(args, "|O:_get_raw", &pyuseraw)) { return NULL; }
+  return nd__get_raw_impl((PyObject *)nd, pyuseraw);
+}
+
+PyObject * nd__get_raw_impl(PyObject *o, PyObject *pyuseraw) {
+  register nflogdataobject *nd = (nflogdataobject *)o;
   // by default, use the raw data if it exists
   int useraw = !!(nd->devnames);
 
-  PyObject *ret, *devnames, *raw, *item = Py_None;
-  if (!PyArg_ParseTuple(args, "|O:__getnewargs__", &item)) { return NULL; }
-  if (_nflogr_tristate(item, &useraw) != 0) { return NULL; }
+  PyObject *ret, *devnames, *raw, *item;
+  if (_nflogr_tristate(pyuseraw, &useraw) != 0) { return NULL; }
 
   if (!(ret = PyTuple_New(2))) { return NULL; }
 
@@ -516,7 +520,9 @@ static PyObject * _NfadAsTuple(struct nflog_data *nfad) {
     nfa = nfad->nfa[i];
     if (nfa) {
       PyObject *bytes;
-      if (!(bytes = Py_BuildValue("y#", (((char *)(nfa)) + NFA_LENGTH(0)), nfa->nfa_len))) {
+      // the l3 payload has to have padding because of reasons :-/
+      int len = nfa->nfa_len - (i == (NFULA_PAYLOAD-1) ? 0 : NFA_LENGTH(0));
+      if (!(bytes = Py_BuildValue("y#", (((char *)(nfa)) + NFA_LENGTH(0)), len))) {
         return NULL;
       }
       PyTuple_SET_ITEM(tup, i, bytes);
@@ -586,15 +592,7 @@ static PyObject * _PyLong_AsBigEndian(PyObject *pylong, unsigned char width) {
   if (pylong == Py_None) { Py_RETURN_NONE; }
 
   unsigned long long val = PyLong_AsUnsignedLong(pylong);
-  if (val == ((unsigned long long)-1)) {
-    PyGILState_STATE gil = PyGILState_Ensure();
-    // needs GIL
-    if (PyErr_Occurred()) {
-      PyGILState_Release(gil);
-      return NULL;
-    }
-    PyGILState_Release(gil);
-  }
+  if (val == ((unsigned long long)-1) && _GIL_PyErr_Occurred()) { return NULL; }
 
   return _ull_AsBigEndian(val, width);
 }
@@ -655,7 +653,7 @@ PyObject * nd__str__(register nflogdataobject *nd) {
 
 PyObject * nd__repr__(register nflogdataobject *nd) {
   if (nd->raw == Py_None) { return nd__str__(nd); }
-  return PyUnicode_FromFormat("%s(%R)", _PyType_Name(Py_TYPE(nd)), nd->raw);
+  return PyUnicode_FromFormat("%s(%R, %R)", _PyType_Name(Py_TYPE(nd)), nd->devnames, nd->raw);
 }
 
 PyObject * nd__new__(PyTypeObject *subtype, PyObject *args, PyObject *) {

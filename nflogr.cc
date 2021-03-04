@@ -13,10 +13,13 @@ extern "C" {
 
 #include "nflogr.h"
 #include "nflog.h"
+#include "nflogopt.h"
 #include "nflogdata.h"
 #include "nflogconst.h"
 
 PyObject *NflogError;
+PyObject *NflogRetryError;
+PyObject *NflogDroppedError;
 PyObject *NflogClosedError;
 
 int _nflogr_tristate(PyObject *o, int *x) {
@@ -30,6 +33,14 @@ int _nflogr_tristate(PyObject *o, int *x) {
   }
 
   return 0;
+}
+
+PyObject * _GIL_PyErr_Occurred() {
+  PyObject *ret;
+  PyGILState_STATE gil = PyGILState_Ensure();
+  ret = PyErr_Occurred();
+  PyGILState_Release(gil);
+  return ret;
 }
 
 static int _nflog_bind_pf(struct nflog_handle *h, u_int16_t pf) {
@@ -54,44 +65,34 @@ static int _nflog_bind_pf(struct nflog_handle *h, u_int16_t pf) {
 }
 
 static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
-  int opt, group;
-
-  int enobufs = 1;
-  long long qthresh = 1, nlbufsiz = 0;
+  // argument parsing
+  int group;
+  long long qthresh = 1, rcvbuf = 0, nlbuf = 0;
+  unsigned char enobufs = NFLOGR_ENOBUFS_RAISE;
   unsigned char copymode = NFULNL_COPY_PACKET;
   double timeout = 0.00;
 
   const char *kwlist[] = {
-    "group", "copymode", "timeout", "qthresh", "nlbufsiz", "enobufs",
+    "group",
+    "timeout",       "qthresh",         "rcvbuf",
+    "nlbuf",         "enobufs",         "copymode",
     NULL
   };
   if (!PyArg_ParseTupleAndKeywords(
-    args, kwargs, "i|$bdLLp:open", (char **)kwlist,
-    &group, &copymode, &timeout, &qthresh, &nlbufsiz, &enobufs
-  )) {
-    return NULL;
-  }
+    args, kwargs, "i|$dLLLbb:open", (char **)kwlist,
+    &group,   /* i */
+    &timeout, /* d */ &qthresh, /* L */ &rcvbuf,  /* L */
+    &nlbuf,   /* L */ &enobufs, /* b */ &copymode /* b */
+  )) { return NULL; }
 
   // argument range validation
-  if (group < 0 || group > 65535) {
-    PyErr_SetString(PyExc_ValueError, "group value must be in range [0,65535]");
-    return NULL;
-  }
-
-  if (timeout < 0 || timeout > 42949672.951) {
-    PyErr_SetString(PyExc_ValueError, "timeout value must be in range [0.00,42949672.95]");
-    return NULL;
-  }
-
-  if (qthresh < 0 || qthresh > 4294967295) {
-    PyErr_SetString(PyExc_ValueError, "qthresh value must be in range [0,4294967295]");
-    return NULL;
-  }
-
-  if (nlbufsiz < 0 || nlbufsiz > 4294967295) {
-    PyErr_SetString(PyExc_ValueError, "nlbufsiz value must be in range [0,4294967295]");
-    return NULL;
-  }
+  if (nflo_validate_group(group) != 0) { return NULL; }
+  if (nflo_validate_timeout(timeout) != 0) { return NULL; }
+  if (nflo_validate_qthresh(qthresh) != 0) { return NULL; }
+  if (nflo_validate_rcvbuf(rcvbuf) != 0) { return NULL; }
+  if (nflo_validate_nlbuf(nlbuf) != 0) { return NULL; }
+  if (nflo_validate_enobufs(enobufs) != 0) { return NULL; }
+  if (nflo_validate_copymode(copymode) != 0) { return NULL; }
 
   struct nflog_handle *h;
   struct nflog_g_handle *gh;
@@ -101,11 +102,11 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
     return NULL;
   }
 
+  // bind protocol families
   if (_nflog_bind_pf(h, PF_INET) != 0) { goto l_open_cleanup_h; }
   if (_nflog_bind_pf(h, PF_INET6) != 0) { goto l_open_cleanup_h; }
 
   // bind group
-  errno = 0;
   if (!(gh = nflog_bind_group(h, group))) {
     if (errno == EPERM) {
       PyErr_Format(
@@ -125,35 +126,15 @@ static PyObject * l_open(PyObject *self, PyObject *args, PyObject *kwargs) {
   }
 
   // set options
-  if (nflog_set_mode(gh, copymode, 0xffff) != 0) {
-    PyErr_SetString(PyExc_OSError, "could not set packet copy mode");
-    goto l_open_cleanup_gh;
-  }
+  if (nflo_set_timeout(h, gh, timeout) != 0) { goto l_open_cleanup_gh; }
+  if (nflo_set_qthresh(h, gh, qthresh) != 0) { goto l_open_cleanup_gh; }
+  if (nflo_set_rcvbuf(h, gh, rcvbuf) != 0) { goto l_open_cleanup_gh; }
+  if (nflo_set_nlbuf(h, gh, nlbuf) != 0) { goto l_open_cleanup_gh; }
+  if (nflo_set_enobufs(h, gh, enobufs) != 0) { goto l_open_cleanup_gh; }
+  if (nflo_set_copymode(h, gh, copymode) != 0) { goto l_open_cleanup_gh; }
 
-  if (nflog_set_qthresh(gh, qthresh) != 0) {
-    PyErr_SetString(PyExc_OSError, "could not set qthresh");
-    goto l_open_cleanup_gh;
-  }
-
-  if (nlbufsiz > 0 && nflog_set_nlbufsiz(gh, nlbufsiz) != 0) {
-    PyErr_SetString(PyExc_OSError, "could not set nlbufsiz");
-    goto l_open_cleanup_gh;
-  }
-
-  if (nflog_set_timeout(gh, timeout * 100.0) != 0) {
-    PyErr_SetString(PyExc_OSError, "could not set timeout");
-    goto l_open_cleanup_gh;
-  }
-
-  if (!enobufs) {
-    opt = 1;
-    if (setsockopt(nflog_fd(h), SOL_NETLINK, NETLINK_NO_ENOBUFS, &opt, sizeof(int)) != 0) {
-      PyErr_SetString(PyExc_OSError, "could not set NO_ENOBUFS");
-      goto l_open_cleanup_gh;
-    }
-  }
-
-  return new_nflogobject(h, gh, group);
+  // build the Nflog instance
+  return new_nflogobject(h, gh, group, enobufs);
 
   // error handling
 l_open_cleanup_gh:
@@ -164,11 +145,19 @@ l_open_cleanup_h:
 }
 
 static PyObject * l__from_iter(PyObject *self, PyObject *args) {
-  PyObject *iter;
+  PyObject *iter, *seq;
 
   if (!PyArg_ParseTuple(args, "O:_from_iter", &iter)) { return NULL; }
-  if (!PyIter_Check(iter)) {
-    PyErr_SetString(PyExc_TypeError, "iter must be an interator");
+  if (PyIter_Check(iter)) {
+    // nothing to do
+  } else if (PySequence_Check(iter)) {
+    seq = iter;
+    if (!(iter = PySeqIter_New(seq))) {
+      PyErr_SetString(PyExc_TypeError, "can't construct iterator from sequence");
+      return NULL;
+    }
+  } else {
+    PyErr_SetString(PyExc_TypeError, "iter must be a sequence or an iterator");
     return NULL;
   }
 
@@ -177,10 +166,42 @@ static PyObject * l__from_iter(PyObject *self, PyObject *args) {
 
 static PyMethodDef nflogrMethods[] = {
   {"open", (PyCFunction)l_open, METH_VARARGS | METH_KEYWORDS, PyDoc_STR(
-    "open($module, /, group, *, copymode=nflogr.COPY_PACKET, timeout=0.0,"
-    " qthresh=1, nlbufsiz=0, enobufs=True)\n"
+    "open($module, /, group, *, timeout=0.0, qthresh=1, rcvbuf=0, nlbuf=0,"
+    " copymode=nflogr.COPY_PACKET, enobufs=nflogr.ENOBUFS_RAISE)\n"
     "--\n\n"
-    "Open an nflog listener for the specifed group."
+    "Open an nflog listener for the specifed group.\n"
+    "\nArgs:\n"
+    "    group (int): The number of the group to listen on.\n"
+    "    timeout (float): The maximum time that nflog waits until it pushes the\n"
+    "        log buffer to userspace if no new logged packets have occured.\n\n"
+    "        Specified in seconds with 0.01 granularity.\n\n"
+    "        (optional, keyword only, defaults to 0)\n"
+    "    qthresh (int): The maximum number of log entries in the buffer until\n"
+    "        it is pushed to userspace.\n\n"
+    "        (optional, keyword only, defaults to 1)\n"
+    "    rcvbuf (int): The maximum size (in bytes) of the receving socket buffer.\n"
+    "        Large values may be needed to avoid dropping packets.\n\n"
+    "        (optional, keyword only, defaults to 0)\n"
+    "    nlbuf (int): The size (in bytes) of the buffer that is used to\n"
+    "        stack log messages in nflog. If set to 0, the kernel default (one\n"
+    "        memory page) will be used.\n\n"
+    "        NOTE: Changing this from the default is strongly discouraged.\n\n"
+    "        (optional, keyword only, defaults to 0)\n"
+    "    enobufs (int): Control what happens when recv() fails with ENOBUFS due\n"
+    "        to dropped packets.\n\n"
+    "        nflogr.ENOBUFS_RAISE - raise an nflogr.NflogDroppedError exception\n"
+    "        nflogr.ENOBUFS_HANDLE - increment the enbufs counter\n"
+    "        nflogr.ENOBUFS_DISABLE - disable ENOBUFS errors entirely\n\n"
+    "        (optional, keyword only, defaults to nflogr.ENOBUFS_RAISE)\n"
+    "    copymode (int): The amount of data to be copied to userspace for each\n"
+    "        packet.\n\n"
+    "        nflogr.COPY_NONE - do not copy any data\n"
+    "        nflogr.COPY_META - copy only packet metadata\n"
+    "        nflogr.COPY_PACKET - copy entire packet\n\n"
+    "        (optional, keyword only, defaults to nflogr.COPY_PACKET)\n"
+    "\nReturns:\n"
+    "    Nflog: An Nflog listener instance.\n"
+    "\n"
   )},
   {"_from_iter", (PyCFunction)l__from_iter, METH_VARARGS, PyDoc_STR(
     "_from_iter($module, iterator, /)\n"
@@ -215,6 +236,12 @@ PyMODINIT_FUNC PyInit_nflogr(void) {
   NflogError = PyErr_NewException("nflogr.NflogError", PyExc_Exception, NULL);
   MOD_ADD_OBJ(m, "NflogError", NflogError);
 
+  NflogRetryError = PyErr_NewException("nflogr.NflogRetryError", NflogError, NULL);
+  MOD_ADD_OBJ(m, "NflogRetryError", NflogRetryError);
+
+  NflogDroppedError = PyErr_NewException("nflogr.NflogDroppedError", NflogError, NULL);
+  MOD_ADD_OBJ(m, "NflogDroppedError", NflogDroppedError);
+
   NflogClosedError = PyErr_NewException("nflogr.NflogClosedError", NflogError, NULL);
   MOD_ADD_OBJ(m, "NflogClosedError", NflogClosedError);
 
@@ -229,6 +256,9 @@ PyMODINIT_FUNC PyInit_nflogr(void) {
   if (PyModule_AddIntConstant(m, "COPY_NONE", NFULNL_COPY_NONE) != 0) { goto nflogr_cleanup; }
   if (PyModule_AddIntConstant(m, "COPY_META", NFULNL_COPY_META) != 0) { goto nflogr_cleanup; }
   if (PyModule_AddIntConstant(m, "COPY_PACKET", NFULNL_COPY_PACKET) != 0) { goto nflogr_cleanup; }
+  if (PyModule_AddIntConstant(m, "ENOBUFS_RAISE", NFLOGR_ENOBUFS_RAISE) != 0) { goto nflogr_cleanup; }
+  if (PyModule_AddIntConstant(m, "ENOBUFS_HANDLE", NFLOGR_ENOBUFS_HANDLE) != 0) { goto nflogr_cleanup; }
+  if (PyModule_AddIntConstant(m, "ENOBUFS_DISABLE", NFLOGR_ENOBUFS_DISABLE) != 0) { goto nflogr_cleanup; }
 
   return m;
 

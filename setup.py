@@ -60,7 +60,7 @@ make_constants('linux/if_ether.h', 'proto', r'.+ETH_P_(\S+)\s+(\S+).*')
 
 setup(
     name="nflogr",
-    version='0.0.5',
+    version='0.1.0',
     description='An object-oriented Python interface to read data via NFLOG',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -71,7 +71,7 @@ setup(
     ext_modules=[Extension(
         name="nflogr",
         sources=[
-            "nflogr.cc", "nflog.cc", "nflogdata.cc",
+            "nflogr.cc", "nflog.cc", "nflogdata.cc", "nflogopt.cc",
             "nflogconstproto.cc", "nflogconsthwtype.cc",
         ],
         libraries=["netfilter_log", "nfnetlink"]
