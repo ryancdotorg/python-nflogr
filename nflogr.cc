@@ -260,6 +260,10 @@ PyMODINIT_FUNC PyInit_nflogr(void) {
   if (PyModule_AddIntConstant(m, "ENOBUFS_HANDLE", NFLOGR_ENOBUFS_HANDLE) != 0) { goto nflogr_cleanup; }
   if (PyModule_AddIntConstant(m, "ENOBUFS_DISABLE", NFLOGR_ENOBUFS_DISABLE) != 0) { goto nflogr_cleanup; }
 
+#ifdef NFLOGR_VERSION
+  if (PyModule_AddStringConstant(m, "__version__", NFLOGR_VERSION) != 0) { goto nflogr_cleanup; }
+#endif
+
   return m;
 
 nflogr_cleanup:

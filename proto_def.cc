@@ -6,7 +6,6 @@
 
 int nflog_add_protos(PyObject *m) {
   if (!m) { return -1; }
-  // fgrep ETH_P_ /usr/include/linux/if_ether.h | perl -pe 's/.+ETH_P_(\S+)\s+(\S+).*/  ADDINTCONST(m, "PROTO_$1", $2);/'
   ADDINTCONST(m, "PROTO_LOOP", 0x0060);
   ADDINTCONST(m, "PROTO_PUP", 0x0200);
   ADDINTCONST(m, "PROTO_PUPAT", 0x0201);

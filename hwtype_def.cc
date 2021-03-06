@@ -6,7 +6,6 @@
 
 int nflog_add_hwtypes(PyObject *m) {
   if (!m) { return -1; }
-  // fgrep ARPHRD_ /usr/include/linux/if_arp.h | perl -pe 's/.+ARPHRD_(\S+)\s+(\S+).*/  ADDINTCONST(m, "HWTYPE_$1", $2);/'
   ADDINTCONST(m, "HWTYPE_NETROM", 0);
   ADDINTCONST(m, "HWTYPE_ETHER", 1);
   ADDINTCONST(m, "HWTYPE_EETHER", 2);

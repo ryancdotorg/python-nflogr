@@ -5,9 +5,18 @@ from distutils.core import setup, Extension
 
 this_directory = path.abspath(path.dirname(__file__))
 
+metadata = {
+    'version': '0.1.0',
+}
+
+extra_compile_args = ['-DNFLOGR_VERSION="{version}"']
+
 # read the contents of README file
 with open(path.join(this_directory, 'README.md')) as f:
     long_description = f.read()
+
+def format_list(l):
+    return list(map(lambda s: s.format(**metadata), l))
 
 # generate functions to add constants to module from system header files
 def make_constants(header, prefix, regex):
@@ -50,7 +59,7 @@ def make_constants(header, prefix, regex):
             f.writelines(map(lambda x: x+'\n', output))
     else:
         # fall back to pregenerated file if header can't be found
-        with open(path.join(this_directory, 'nflogconst%s_def.cc' % prefix)) as i:
+        with open(path.join(this_directory, '%s_def.cc' % prefix)) as i:
             with open(out, 'w') as o:
                 o.write(warn+'\n')
                 o.writelines(i.readlines())
@@ -60,7 +69,7 @@ make_constants('linux/if_ether.h', 'proto', r'.+ETH_P_(\S+)\s+(\S+).*')
 
 setup(
     name="nflogr",
-    version='0.1.0',
+    version=metadata['version'],
     description='An object-oriented Python interface to read data via NFLOG',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -74,7 +83,8 @@ setup(
             "nflogr.cc", "nflog.cc", "nflogdata.cc", "nflogopt.cc",
             "nflogconstproto.cc", "nflogconsthwtype.cc",
         ],
-        libraries=["netfilter_log", "nfnetlink"]
+        libraries=["netfilter_log", "nfnetlink"],
+        extra_compile_args=format_list(extra_compile_args),
     )],
     classifiers=[
         'Development Status :: 3 - Alpha',
