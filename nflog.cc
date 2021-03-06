@@ -39,7 +39,7 @@ typedef struct {
   fifo_t *tail;
   int group;
   int fd;
-  int enobufs;
+  int drops;
   int raw;
 } nflogobject;
 
@@ -171,7 +171,7 @@ static PyObject * n__next__(register nflogobject *n);
 static PyObject * n_get_drops(register nflogobject *n, void *) {
   NFLOG_CHECK(n, NULL);
 
-  return Py_BuildValue("i", n->enobufs > 0 ? n->enobufs : 0);
+  return Py_BuildValue("i", n->drops > 0 ? n->drops : 0);
 }
 
 static int n_set_drops(register nflogobject *n, PyObject *v, void *) {
@@ -182,7 +182,7 @@ static int n_set_drops(register nflogobject *n, PyObject *v, void *) {
     return -1;
   }
 
-  if (n->enobufs > 0) { n->enobufs = 0; }
+  if (n->drops > 0) { n->drops = 0; }
   return 0;
 }
 
@@ -338,7 +338,7 @@ PyObject * new_nflogobject(struct nflog_handle *h, struct nflog_g_handle *gh, in
   n->group = group;
   n->mock = NULL;
   n->head = n->tail = NULL;
-  n->enobufs = (enobufs == NFLOGR_ENOBUFS_RAISE ? -1 : 0);
+  n->drops = (enobufs == NFLOGR_ENOBUFS_RAISE ? -1 : 0);
   n->raw = 0;
 
   if (h == NULL && gh == NULL && group < 0) {
