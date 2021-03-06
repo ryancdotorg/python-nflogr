@@ -37,6 +37,7 @@ typedef struct {
   struct nflog_g_handle *gh;
   fifo_t *head;
   fifo_t *tail;
+  int queued;
   int group;
   int fd;
   int drops;
@@ -52,6 +53,19 @@ typedef struct {
       return R; \
     } \
   } while (0);
+
+// walk the fifo for size, can't fail under any reasonable circumstances
+static Py_ssize_t fifo_len(register nflogobject *n) {
+  Py_ssize_t len = 0;
+
+  fifo_t *node = n->head;
+  while (node) {
+    node = node->next;
+    ++len;
+  }
+
+  return len;
+}
 
 // append to fifo, steals refrence to o, returns 0 on success, -1 on failure
 static int fifo_push(register nflogobject *n, PyObject *o) {
@@ -79,6 +93,7 @@ static int fifo_push(register nflogobject *n, PyObject *o) {
     n->head = n->tail = entry;
   }
 
+  n->queued++;
   return 0;
 }
 
@@ -100,19 +115,8 @@ static PyObject * fifo_shift(register nflogobject *n) {
     n->head = n->tail = NULL;
   }
 
+  n->queued--;
   return o;
-}
-
-// walk the fifo for size, can't fail under any reasonable circumstances
-static Py_ssize_t fifo_len(register nflogobject *n) {
-  Py_ssize_t len = 0;
-  fifo_t *node = n->head;
-  while (node) {
-    node = node->next;
-    ++len;
-  }
-
-  return len;
 }
 
 // empties the fifo, decrementing refrence count of contained objects
@@ -338,6 +342,7 @@ PyObject * new_nflogobject(struct nflog_handle *h, struct nflog_g_handle *gh, in
   n->group = group;
   n->mock = NULL;
   n->head = n->tail = NULL;
+  n->queued = 0;
   n->drops = (enobufs == NFLOGR_ENOBUFS_RAISE ? -1 : 0);
   n->raw = 0;
 
