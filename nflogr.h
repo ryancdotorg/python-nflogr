@@ -17,18 +17,22 @@ extern PyObject *NflogRetryError;
 extern PyObject *NflogDroppedError;
 extern PyObject *NflogClosedError;
 
+#ifndef NFLOGR_DEBUG
 #define NFLOGR_DEBUG 1
-#define nfldbg(fmt, ...) do { \
+#endif
+#define nfldbg(FMT, ...) do { \
 	if (NFLOGR_DEBUG) { \
-		fprintf(stderr, "DEBUG(nflogr %s:%s:%d) " fmt, \
+		fprintf(stderr, "DEBUG(nflogr %s:%s:%d) " FMT, \
 			__FILE__, __func__, __LINE__, __VA_ARGS__ \
 		); \
 	} \
 } while (0)
 
-#define PYERR_ERRNO(EXC, STR) do { \
+#define NFLOGR_PYERRNO(EXC, FMT, ...) do { \
 	char buf[1024]; \
-	snprintf(buf, sizeof(buf), "%s: %s (%d)", STR, strerror(errno), errno); \
+	snprintf(buf, sizeof(buf), FMT ": %s (%d)", \
+		__VA_ARGS__, strerror(errno), errno \
+	); \
 	PyErr_SetString(EXC, buf); \
 } while (0)
 
