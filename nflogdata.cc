@@ -36,6 +36,7 @@ typedef struct {
   PyObject *uid;
   PyObject *gid;
 
+  PyObject *hwaddr;
   PyObject *hwhdr;
   PyObject *payload;
 
@@ -175,6 +176,18 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
     Py_INCREF(Py_None);
   }
 
+  // hwaddr
+  struct nfulnl_msg_packet_hw *hw = nflog_get_packet_hw(nfad);
+  if (hw) {
+    if (!(nd->hwaddr = Py_BuildValue("y#", hw->hw_addr, ntohs(hw->hw_addrlen)))) {
+      nd_dealloc(nd);
+      return NULL;
+    }
+  } else {
+    nd->hwaddr = Py_None;
+    Py_INCREF(Py_None);
+  }
+
   char *hwhdr = nflog_get_msg_packet_hwhdr(nfad);
   size_t hwhdr_sz = nflog_get_msg_packet_hwhdrlen(nfad);
   if (!(nd->hwhdr = Py_BuildValue("y#", hwhdr, hwhdr_sz))) {
@@ -244,6 +257,11 @@ static PyObject * nd_get_gid(register nflogdataobject *nd, void *) {
   return nd->gid;
 }
 
+static PyObject * nd_get_hwaddr(register nflogdataobject *nd, void *) {
+  Py_INCREF(nd->hwaddr);
+  return nd->hwaddr;
+}
+
 static PyObject * nd_get_hwhdr(register nflogdataobject *nd, void *) {
   Py_INCREF(nd->hwhdr);
   return nd->hwhdr;
@@ -271,6 +289,7 @@ static PyGetSetDef nd_getset[] = {
   {"physoutdev", (getter)nd_get_physoutdev, NULL, NULL, NULL},
   {"uid",        (getter)nd_get_uid,        NULL, NULL, NULL},
   {"gid",        (getter)nd_get_gid,        NULL, NULL, NULL},
+  {"hwaddr",     (getter)nd_get_hwaddr,     NULL, NULL, NULL},
   {"hwhdr",      (getter)nd_get_hwhdr,      NULL, NULL, NULL},
   {"payload",    (getter)nd_get_payload,    NULL, NULL, NULL},
   {"prefix",     (getter)nd_get_prefix,     NULL, NULL, NULL},
@@ -422,7 +441,27 @@ PyObject * nd__get_raw_impl(PyObject *o, PyObject *pyuseraw) {
     ) < 0) { goto nd__get_raw_cleanup; }
   }
 
-  // NFULA_HWADDR - not supported
+  if (nd->hwaddr != Py_None) {
+    // NFULA_HWADDR - construct from nd->hwaddr
+    struct nfulnl_msg_packet_hw hw;
+    memset(&hw, 0, sizeof(hw));
+
+    char *hwaddr_data;
+    Py_ssize_t hwaddr_size;
+    if (PyBytes_AsStringAndSize(nd->hwaddr, &hwaddr_data, &hwaddr_size) != 0) {
+      goto nd__get_raw_cleanup;
+    } else if (hwaddr_size > (Py_ssize_t)sizeof(hw.hw_addr)) {
+      nfldbg("hwaddr_size %zd %u %zd\n", hwaddr_size, hw.hw_addrlen, (Py_ssize_t)sizeof(hw.hw_addr));
+      PyErr_SetString(PyExc_ValueError, "hwaddr too large");
+      goto nd__get_raw_cleanup;
+    }
+
+    hw.hw_addrlen = hwaddr_size;
+    memcpy(hw.hw_addr, hwaddr_data, hwaddr_size);
+
+    if (!(item = Py_BuildValue("y#", &hw, sizeof(hw)))) { goto nd__get_raw_cleanup; }
+    PyTuple_SET_ITEM(raw, NFULA_HWADDR-1, item);
+  }
 
   {
     // NFULA_PAYLOAD - construct from nd->payload
