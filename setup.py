@@ -6,7 +6,7 @@ from distutils.core import setup, Extension
 this_directory = path.abspath(path.dirname(__file__))
 
 metadata = {
-    'version': '0.1.1',
+    'version': '0.1.2',
 }
 
 extra_compile_args = ['-DNFLOGR_VERSION="{version}"']
