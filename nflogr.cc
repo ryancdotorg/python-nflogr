@@ -145,14 +145,14 @@ l_open_cleanup_h:
 }
 
 static PyObject * l__from_iter(PyObject *self, PyObject *args) {
-  PyObject *iter, *seq;
+  PyObject *o, *iter;
 
-  if (!PyArg_ParseTuple(args, "O:_from_iter", &iter)) { return NULL; }
-  if (PyIter_Check(iter)) {
-    // nothing to do
-  } else if (PySequence_Check(iter)) {
-    seq = iter;
-    if (!(iter = PySeqIter_New(seq))) {
+  if (!PyArg_ParseTuple(args, "O:_from_iter", &o)) { return NULL; }
+  if (PyIter_Check(o)) {
+    iter = o;
+    Py_INCREF(o);
+  } else if (PySequence_Check(o)) {
+    if (!(iter = PySeqIter_New(o))) {
       PyErr_SetString(PyExc_TypeError, "can't construct iterator from sequence");
       return NULL;
     }
