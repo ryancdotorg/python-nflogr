@@ -1,2 +1,5 @@
 include LICENSE nflogconst.h *_def.cc
+graft examples
+
 exclude nflogconsthwtype.cc nflogconstproto.cc
+global-exclude *.py[cod]
