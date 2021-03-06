@@ -17,7 +17,7 @@ Nflogr is available from
 
 ### Disclaimer
 
-This is my first Python extension module, and I consider it ‘alpha quality’. It
+This is my first Python extension module, and I consider it ‘beta quality’. It
 may crash, contain exploitable security vulnerabilities, be unpythonic, etc.
 There aren’t currently any tests, though infrastructure to add them is in
 place.

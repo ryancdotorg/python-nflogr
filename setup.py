@@ -6,7 +6,7 @@ from distutils.core import setup, Extension
 this_directory = path.abspath(path.dirname(__file__))
 
 metadata = {
-    'version': '0.1.0',
+    'version': '0.1.1',
 }
 
 extra_compile_args = ['-DNFLOGR_VERSION="{version}"']
@@ -87,7 +87,7 @@ setup(
         extra_compile_args=format_list(extra_compile_args),
     )],
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Intended Audience :: Information Technology',
         'Intended Audience :: System Administrators',
