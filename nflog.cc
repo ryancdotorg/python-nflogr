@@ -145,6 +145,10 @@ static PyObject * n_close(register nflogobject *n, PyObject *) {
 
   if (n->gh) { nflog_unbind_group(n->gh); }
   if (n->h) { nflog_close(n->h); }
+  if (n->mock) {
+    Py_DECREF(n->mock);
+    n->mock = NULL;
+  }
 
   // clear references
   n->h = NULL; n->gh = NULL;
@@ -160,6 +164,7 @@ static void nflog_dealloc(register nflogobject *n) {
 }
 
 // nflog methods
+static PyObject * n_queue(register nflogobject *n, PyObject *args);
 static PyObject * n_next(register nflogobject *n, PyObject *args);
 static PyObject * n_loop(register nflogobject *n, PyObject *args);
 static PyObject * n_getfd(register nflogobject *n, PyObject *);
@@ -226,6 +231,11 @@ static PyMappingMethods n_mapping = {
 };
 
 static PyMethodDef n_methods[] = {
+  {"queue", (PyCFunction) n_queue, METH_VARARGS, PyDoc_STR(
+      "queue($self, wait=True, /)\n"
+      "--\n\n"
+      "queues any messages waiting on the socket, returns number queued"
+  )},
   {"next", (PyCFunction) n_next, METH_VARARGS, PyDoc_STR(
       "next($self, wait=True, /)\n"
       "--\n\n"
@@ -363,41 +373,20 @@ PyObject * mock_nflogobject(PyObject *iter) {
   return (PyObject *)n;
 }
 
-// return exactly one nflogdata object, calling recv if needed
-static PyObject * _recv(register nflogobject *n, int wait) {
-  NFLOG_CHECK(n);
+// queue received packets (if any), returns number queued or -1 on error
+static int _queue(register nflogobject *n, int wait) {
+  // we don't need to try to receive for closed handles
+  if (n->fd == -2 || !(n->h) || !(n->gh)) { return 0; }
 
-  PyObject *list, *item, *nd, *ret;
-  char buf[16384];
-  int rv, i, flags = wait ? 0 : MSG_DONTWAIT;
-  Py_ssize_t count;
+  int queued = n->queued;
+  if (!(n->mock)) {
+    // handle real data
+    int rv;
+    char buf[16384];
 
-  for (int retry = 0; retry < RECV_RETRY_LIMIT; ++retry) {
-    if ((ret = fifo_shift(n)) != Py_None) {
-      return ret;
-    } else if (n->mock) {
-      // inject raw data from an iterator
-      if ((list = PyIter_Next(n->mock))) {
-        for (i = 0, count = PyList_Size(list); i < count; ++i) {
-          item = PyList_GetItem(list, i);
-          nd = NflogDatatype.tp_new(&NflogDatatype, item, Py_None);
-          if (!nd || fifo_push(n, nd) != 0) {
-            Py_DECREF(list);
-            return NULL;
-          }
-        }
-        Py_DECREF(list);
-        continue;
-      } else if (_GIL_PyErr_Occurred()) {
-        return NULL;
-      }
-
-      n->mock = NULL;
-      continue;
-    } else if (!(n->h) || !(n->gh) || n->fd == -2) {
-      PyErr_SetString(NflogClosedError, "nflog is closed");
-      return NULL;
-    } else if ((rv = recv(n->fd, buf, sizeof(buf), flags)) >= 0) {
+    // only wait if the flag is requested *and* there's nothing queued
+    int recv_flags = (wait && !(n->head)) ? 0 : MSG_DONTWAIT;
+    if ((rv = recv(n->fd, buf, sizeof(buf), recv_flags)) >= 0) {
       /*
       fprintf(stderr, "recv(%d): ", rv);
       for (int i = 0; i < rv; ++i) {
@@ -407,29 +396,62 @@ static PyObject * _recv(register nflogobject *n, int wait) {
       // regularly returns non-fatal errors, so don't check return, and it can
       // sometimes process zero packets for some reason
       nflog_handle_packet(n->h, buf, rv);
-      continue;
     } else if (errno == ENOBUFS) {
-      if (n->enobufs < 0) {
+      if (n->drops < 0) {
         PyErr_SetString(NflogDroppedError, "packets were dropped (ENOBUFS)");
-        return NULL;
+        return -1;
       }
-      n->enobufs++;
-    } else if (errno == EWOULDBLOCK) {
-      // handle nonblocking socket
-      Py_RETURN_NONE;
-    } else {
+      n->drops++;
+    } else if (errno != EWOULDBLOCK) {  // EWOULDBLOCK == EAGAIN
       // PyErr_Format was segfaulting when ctrl-c was hit
-      char err[256];
-      snprintf(err, sizeof(err),
-        "recv() on nflog fd %d failed: %s (%d)",
-        n->fd, strerror(errno), errno
-      );
-      PyErr_SetString(PyExc_OSError, err);
-      return NULL;
+      NFLOGR_PYERRNO(PyExc_OSError, "recv() on fd %d failed", n->fd);
+      return -1;
+    }
+  } else {
+    // handle mock connection
+    PyObject *nd, *list, *item;
+
+    // inject raw data from an iterator
+    if ((list = PyIter_Next(n->mock))) {
+      // batch queue each item in the list
+      for (Py_ssize_t i = 0, count = PyList_Size(list); i < count; ++i) {
+        item = PyList_GetItem(list, i);
+        nd = NflogDatatype.tp_new(&NflogDatatype, item, Py_None);
+        if (!nd || fifo_push(n, nd) != 0) {
+          Py_DECREF(list);
+          return -1;
+        }
+      }
+      Py_DECREF(list);
+    } else {
+      // fail if an exception is set - PyIter_Next just returns NULL without
+      // raising StopIteration when it runs out of items.
+      if (_GIL_PyErr_Occurred()) { return -1; }
+
+      // no more data from iterator
+      n_close(n, NULL);
+      return 0;
     }
   }
 
-  PyErr_SetString(NflogRetryError, "_recv stuck in a loop?");
+  return n->queued - queued;
+}
+
+// return exactly one nflogdata object (or None)
+static PyObject * _next(register nflogobject *n, int wait) {
+  for (int retry = 0; retry < RECV_RETRY_LIMIT; ++retry) {
+    PyObject *nd;
+    int rv;
+    if ((rv = _queue(n, wait)) < 0) { return NULL; }
+
+    if ((nd = fifo_shift(n)) != Py_None) {
+      return nd;
+    } else if (!wait) {
+      Py_RETURN_NONE;
+    }
+  }
+
+  PyErr_SetString(NflogRetryError, "_queue stuck in a loop?");
   return NULL;
 }
 
@@ -439,21 +461,36 @@ static PyObject * n__recv_raw(register nflogobject *n, PyObject *) {
   fifo_empty(n);
   n->raw = 1;
 
-  PyObject *nd, *raw, *list;
+  PyObject *list, *nd = NULL, *raw = NULL;
   if (!(list = PyList_New(0))) { return NULL; }
 
-  if (!(nd = _recv(n, 1))) { goto n__recv_raw_cleanup; }
+  if (_queue(n, 1) < 0) { goto n__recv_raw_cleanup; }
 
-  do {
-    if (nd == Py_None) { return list; }
-    raw = nd__get_raw_impl(nd, Py_None);
+  while ((nd = fifo_shift(n)) != NULL) {
+    if (nd == Py_None) {
+      Py_DECREF(nd);
+      return list;
+    }
+
+    raw = nd__get_raw_impl(nd, Py_True);
     Py_DECREF(nd);
     if (!raw || PyList_Append(list, raw) != 0) { goto n__recv_raw_cleanup; }
-  } while ((nd = fifo_shift(n)) != NULL);
+  }
 
 n__recv_raw_cleanup:
+  Py_XDECREF(raw);  // XXX should this be here?
+  Py_XDECREF(nd);
   Py_DECREF(list);
   return NULL;
+}
+
+static PyObject * n_queue(register nflogobject *n, PyObject *args) {
+  NFLOG_CHECK(n, NULL);
+
+  int queued, wait = 1;
+  if (!PyArg_ParseTuple(args, "|p:queue", &wait)) { return NULL; }
+  if ((queued = _queue(n, wait)) < 0) { return NULL; }
+  return Py_BuildValue("i", queued);
 }
 
 static PyObject * n_next(register nflogobject *n, PyObject *args) {
@@ -461,7 +498,7 @@ static PyObject * n_next(register nflogobject *n, PyObject *args) {
 
   int wait = 1;
   if (!PyArg_ParseTuple(args, "|p:next", &wait)) { return NULL; }
-  return _recv(n, wait);
+  return _next(n, wait);
 }
 
 static PyObject * n_loop(register nflogobject *n, PyObject *args) {
@@ -478,7 +515,7 @@ static PyObject * n_loop(register nflogobject *n, PyObject *args) {
   }
 
   while (cnt != 0) {
-    if (!(nd = _recv(n, 1))) { return nd; }
+    if (!(nd = _next(n, 1))) { return nd; }
 
     if (nd == Py_None) {
       Py_DECREF(nd);
@@ -550,7 +587,7 @@ static PyObject * n__next__(register nflogobject *n) {
   NFLOG_CHECK(n, NULL);
 
   PyObject *nd;
-  if (!(nd = _recv(n, 1))) {
+  if (!(nd = _next(n, 1))) {
     PyObject *et = _GIL_PyErr_Occurred();
     if (et) {
       if (PyErr_GivenExceptionMatches(et, NflogClosedError)) {
