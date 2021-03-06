@@ -43,6 +43,16 @@ typedef struct {
   int raw;
 } nflogobject;
 
+// should be called at the start of any function exposed to python which
+// accesses any memebers of the nflogobject struct, or calls functions which do
+#define NFLOG_CHECK(N, R) \
+  do { \
+    if (Py_TYPE(N) != &Nflogtype) { \
+      PyErr_SetString(NflogError, "not an nflog object"); \
+      return R; \
+    } \
+  } while (0);
+
 // append to fifo, steals refrence to o, returns 0 on success, -1 on failure
 static int fifo_push(register nflogobject *n, PyObject *o) {
   fifo_t *entry = (fifo_t *)malloc(sizeof(fifo_t));
@@ -127,6 +137,8 @@ static PyObject * entuple(PyObject *o) {
 }
 
 static PyObject * n_close(register nflogobject *n, PyObject *) {
+  NFLOG_CHECK(n, NULL);
+
   if (n->gh) { nflog_unbind_group(n->gh); }
   if (n->h) { nflog_close(n->h); }
 
@@ -157,10 +169,14 @@ static PyObject * n__next__(register nflogobject *n);
 
 // nflog getters/setters
 static PyObject * n_get_drops(register nflogobject *n, void *) {
+  NFLOG_CHECK(n, NULL);
+
   return Py_BuildValue("i", n->enobufs > 0 ? n->enobufs : 0);
 }
 
 static int n_set_drops(register nflogobject *n, PyObject *v, void *) {
+  NFLOG_CHECK(n, -1);
+
   if (PyLong_AsLong(v) != 0) {
     PyErr_SetString(PyExc_TypeError, "drops can only be set to 0");
     return -1;
@@ -171,6 +187,8 @@ static int n_set_drops(register nflogobject *n, PyObject *v, void *) {
 }
 
 static PyObject * n_get_rcvbuf(register nflogobject *n, void *) {
+  NFLOG_CHECK(n, NULL);
+
   int opt;
   socklen_t len;
   if (n->fd < 0) {
@@ -184,6 +202,8 @@ static PyObject * n_get_rcvbuf(register nflogobject *n, void *) {
 }
 
 static int n_set_rcvbuf(register nflogobject *n, PyObject *v, void *) {
+  NFLOG_CHECK(n, -1);
+
   long rcvbuf = PyLong_AsLong(v);
   if (rcvbuf == -1 && _GIL_PyErr_Occurred()) { return -1; }
   if (nflo_set_rcvbuf(n->h, n->gh, rcvbuf) != 0) { return -1; }
@@ -192,9 +212,10 @@ static int n_set_rcvbuf(register nflogobject *n, PyObject *v, void *) {
 
 // nflog getters without setters
 static PyObject * n_get_queued(register nflogobject *n, void *) {
+  NFLOG_CHECK(n, NULL);
+
   if (n->head) { Py_RETURN_TRUE; } else { Py_RETURN_FALSE; }
 }
-
 
 static PyMappingMethods n_mapping = {
   (lenfunc)fifo_len,         /* mp_length */
@@ -337,14 +358,6 @@ PyObject * mock_nflogobject(PyObject *iter) {
   return (PyObject *)n;
 }
 
-#define NFLOG_CHECK(N) \
-  do { \
-    if (Py_TYPE(N) != &Nflogtype) { \
-      PyErr_SetString(NflogError, "not an nflog object"); \
-      return NULL; \
-    } \
-  } while (0);
-
 // return exactly one nflogdata object, calling recv if needed
 static PyObject * _recv(register nflogobject *n, int wait) {
   NFLOG_CHECK(n);
@@ -416,6 +429,8 @@ static PyObject * _recv(register nflogobject *n, int wait) {
 }
 
 static PyObject * n__recv_raw(register nflogobject *n, PyObject *) {
+  NFLOG_CHECK(n, NULL);
+
   fifo_empty(n);
   n->raw = 1;
 
@@ -437,12 +452,16 @@ n__recv_raw_cleanup:
 }
 
 static PyObject * n_next(register nflogobject *n, PyObject *args) {
+  NFLOG_CHECK(n, NULL);
+
   int wait = 1;
   if (!PyArg_ParseTuple(args, "|p:next", &wait)) { return NULL; }
   return _recv(n, wait);
 }
 
 static PyObject * n_loop(register nflogobject *n, PyObject *args) {
+  NFLOG_CHECK(n, NULL);
+
   int cnt = -1;
   PyObject *nd, *PyFn;
 
@@ -471,7 +490,7 @@ static PyObject * n_loop(register nflogobject *n, PyObject *args) {
 }
 
 static PyObject * n_getfd(register nflogobject *n, PyObject *) {
-  NFLOG_CHECK(n);
+  NFLOG_CHECK(n, NULL);
 
   if (n->fd >= 0) {
     return Py_BuildValue("i", n->fd);
@@ -481,7 +500,7 @@ static PyObject * n_getfd(register nflogobject *n, PyObject *) {
 }
 
 static PyObject * n_fileno(register nflogobject *n, PyObject *) {
-  NFLOG_CHECK(n);
+  NFLOG_CHECK(n, NULL);
 
   if (n->fd >= 0) {
     return Py_BuildValue("i", n->fd);
@@ -492,7 +511,7 @@ static PyObject * n_fileno(register nflogobject *n, PyObject *) {
 }
 
 static PyObject * n_getgroup(register nflogobject *n, PyObject *) {
-  NFLOG_CHECK(n);
+  NFLOG_CHECK(n, NULL);
 
   if (n->group >= 0) {
     return Py_BuildValue("i", n->group);
@@ -502,7 +521,7 @@ static PyObject * n_getgroup(register nflogobject *n, PyObject *) {
 }
 
 static PyObject * n__raw(register nflogobject *n, PyObject *args) {
-  NFLOG_CHECK(n);
+  NFLOG_CHECK(n, NULL);
 
   PyObject *value = Py_None;
 
@@ -523,7 +542,7 @@ static PyObject * n__iter__(register nflogobject *n) {
 }
 
 static PyObject * n__next__(register nflogobject *n) {
-  NFLOG_CHECK(n);
+  NFLOG_CHECK(n, NULL);
 
   PyObject *nd;
   if (!(nd = _recv(n, 1))) {
