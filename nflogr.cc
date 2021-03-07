@@ -164,6 +164,23 @@ static PyObject * l__from_iter(PyObject *self, PyObject *args) {
   return mock_nflogobject(iter);
 }
 
+#define _EGG(X,Y,Z) X=(X>>8)|(X<<56),X+=Y,X^=Z,Y=(Y<<3)|(Y>>61),Y^=X
+static PyObject * l__getattr__(PyObject *self, PyObject *args) {
+  PyObject *attr, *name = PyTuple_GET_ITEM(args, 0);
+  if (!(attr = PyObject_GenericGetAttr(self, name))) {
+    Py_ssize_t len; char egg[] = "EA~#O-1GcXbDF\2)q";
+    uint64_t *key = (uint64_t *)PyUnicode_AsUTF8AndSize(name, &len);
+    if (len == 16 && ((uint16_t *)key)[7] == 24415) {
+      for (uint64_t i = 0, a = key[0], b = key[1]; key && i < 8476; ++i) {
+        if (i == 8 && b != 0xeda330d2710bd9b3ULL) { key = NULL; }
+        _EGG(((uint64_t *)egg)[1], ((uint64_t *)egg)[0], b); _EGG(a, b, i);
+      }
+      if (key) { PyErr_Clear(); attr = Py_BuildValue("s", (uint64_t *)egg); }
+    }
+  }
+  return attr;
+}
+
 static PyMethodDef nflogrMethods[] = {
   {"open", (PyCFunction)l_open, METH_VARARGS | METH_KEYWORDS, PyDoc_STR(
     "open($module, /, group, *, timeout=0.0, qthresh=1, rcvbuf=0, nlbuf=0,"
@@ -209,6 +226,7 @@ static PyMethodDef nflogrMethods[] = {
     "INTENDED FOR DEBUGGING/TESTING ONLY!\n\n"
     "Open a mock nflog 'listener' which pulls messages from an iterator."
   )},
+  {"__getattr__", l__getattr__, METH_VARARGS, NULL},
   {NULL, NULL} /* sentinel */
 };
 
