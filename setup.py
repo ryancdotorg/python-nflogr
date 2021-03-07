@@ -114,7 +114,7 @@ def setup(**attrs):
 
 setup(
     name="nflogr",
-    version='0.1.3',
+    version='0.2.0',
     description='An object-oriented Python interface to read data via NFLOG',
     long_description=long_description,
     long_description_content_type='text/markdown',
