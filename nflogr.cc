@@ -290,8 +290,8 @@ PyMODINIT_FUNC PyInit_nflogr(void) {
     do {  // load module metadata from string literal
       if (!(pystr = Py_BuildValue("s", meta_json))) { break; }
       if (!(args = PyTuple_New(1))) { Py_DECREF(pystr); break; }
-      PyTuple_SET_ITEM(args, 0, pystr); // steals refrence to pystr
-      if (!(md = PyModule_GetDict(m))) { break; } // returns borrows reference
+      PyTuple_SET_ITEM(args, 0, pystr);  // steals refrence to pystr
+      if (!(md = PyModule_GetDict(m))) { break; }  // returns borrows reference
       if (!(json = PyImport_ImportModule("json"))) { break; }
       if (!(loads = PyObject_GetAttrString(json, "loads"))) { break; }
       if (!(dict = PyObject_CallObject(loads, args))) { break; }

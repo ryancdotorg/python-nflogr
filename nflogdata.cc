@@ -451,7 +451,6 @@ PyObject * nd__get_raw_impl(PyObject *o, PyObject *pyuseraw) {
     if (PyBytes_AsStringAndSize(nd->hwaddr, &hwaddr_data, &hwaddr_size) != 0) {
       goto nd__get_raw_cleanup;
     } else if (hwaddr_size > (Py_ssize_t)sizeof(hw.hw_addr)) {
-      nfldbg("hwaddr_size %zd %u %zd\n", hwaddr_size, hw.hw_addrlen, (Py_ssize_t)sizeof(hw.hw_addr));
       PyErr_SetString(PyExc_ValueError, "hwaddr too large");
       goto nd__get_raw_cleanup;
     }
