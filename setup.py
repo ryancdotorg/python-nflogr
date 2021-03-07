@@ -1,7 +1,6 @@
 import re, setuptools, shutil
 
 from pathlib import Path
-from os import path, makedirs
 from hashlib import sha256
 from distutils.core import Extension
 from distutils.command.build_ext import build_ext
@@ -11,7 +10,7 @@ root = here.resolve().root
 gen = Path(here, 'gen')
 
 # read the contents of README file
-with open(path.join(here, 'README.md')) as f:
+with open(Path(here, 'README.md')) as f:
     long_description = f.read()
 
 pkg_attrs = dict(
