@@ -122,9 +122,77 @@ def make_constants(log, header, prefix, regex):
                 o.write(warn+'\n')
                 o.writelines(i.readlines())
 
+def _git():
+    import re, time
+    from subprocess import check_output, run, DEVNULL
+
+    class git(object):
+        @staticmethod
+        def is_clean():
+            try:
+                r = run(['git', 'diff', '--quiet'], stderr=DEVNULL).returncode
+                if r == 0:   return True
+                elif r == 1: return False
+            except FileNotFoundError:
+                pass
+
+            return None
+
+        def build_info(version):
+            clean = git.is_clean()
+            if clean is True:
+                tag = git.get_tag()
+                if tag == version:
+                    return ''
+                elif tag:
+                    raise ValueError(f'tag `{tag}` does not match module version `{version}`')
+
+                return '+{}.{}.{}'.format(git.get_ct(), git.get_br(), git.get_ci())
+            elif clean is False:
+                return '+{}.{}.{}'.format(git.get_ts(), git.get_br(), 'dirty')
+            else:
+                return ''
+
+        def get_tag():
+            p = run(
+                ['git', 'describe', '--exact-match', '--tags'],
+                capture_output=True, encoding='utf-8'
+            )
+            if p.returncode == 0:
+                return re.sub(r'^v', '', p.stdout.strip())
+
+            return None
+
+        def get_br():
+            return check_output(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                encoding='utf-8'
+            ).strip()
+
+        def get_ci():
+            return check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                encoding='utf-8'
+            ).strip()
+
+        def get_ct():
+            return check_output(
+                ['git', 'show', '-s', '--date=format-local:%Y%m%d%H%M%S', '--format=%cd'],
+                encoding='utf-8'
+            ).strip()
+
+        def get_ts():
+            return time.strftime('%Y%m%d%H%M%S', time.gmtime())
+
+    return git
+
+git = _git()
+
 # wrapper around distutils.setup that injects some compiler arguments
 def setup(**attrs):
-    import distutils, json, types
+    import distutils, json, time, types
+
+    attrs['version'] += git.build_info(attrs['version'])
     cmd = attrs.setdefault('cmdclass', {})
 
     class build_ext(cmd.get('build_ext', distutils.command.build_ext.build_ext)):
