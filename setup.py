@@ -209,6 +209,7 @@ def setup(**attrs):
             from subprocess import check_call
 
             if git.is_clean() is True and git.get_tag() == attrs['version']:
+                check_call(['git', 'push'])
                 check_call(['git', 'push', '--tags'])
                 check_call([
                     'twine', 'upload', '--repository', 'pypi',
