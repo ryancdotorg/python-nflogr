@@ -57,7 +57,7 @@ static struct nflog_data * _TupleAsNfad(PyObject *tup);
 static PyObject * _PyLong_AsBigEndian(PyObject *pylong, unsigned char width);
 static PyObject * _ull_AsBigEndian(unsigned long long val, unsigned char width);
 
-static void nd_dealloc(register nflogdataobject *nd) {
+static void nd_dealloc(nflogdataobject *nd) {
   Py_XDECREF(nd->indev);
   Py_XDECREF(nd->physindev);
   Py_XDECREF(nd->outdev);
@@ -87,7 +87,7 @@ static PyObject * _if_indextoname(uint32_t idx) {
 }
 
 // look up device name from index with mock support
-static PyObject * _devname(register nflogdataobject *nd, uint32_t idx) {
+static PyObject * _devname(nflogdataobject *nd, uint32_t idx) {
   if (idx) {
     PyObject *devname;
     // if devnames is non-null, check there first
@@ -211,68 +211,68 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
   return (PyObject *)nd;
 }
 
-static PyObject * nd_get_proto(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_proto(nflogdataobject *nd, void *) {
   return Py_BuildValue("H", nd->proto);
 }
 
-static PyObject * nd_get_hwtype(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_hwtype(nflogdataobject *nd, void *) {
   return Py_BuildValue("H", nd->hwtype);
 }
 
-static PyObject * nd_get_nfmark(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_nfmark(nflogdataobject *nd, void *) {
   return Py_BuildValue("k", nd->nfmark);
 }
 
-static PyObject * nd_get_timestamp(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_timestamp(nflogdataobject *nd, void *) {
   return PyFloat_FromDouble(nd->timestamp);
 }
 
-static PyObject * nd_get_indev(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_indev(nflogdataobject *nd, void *) {
   Py_INCREF(nd->indev);
   return nd->indev;
 }
 
-static PyObject * nd_get_physindev(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_physindev(nflogdataobject *nd, void *) {
   Py_INCREF(nd->physindev);
   return nd->physindev;
 }
 
-static PyObject * nd_get_outdev(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_outdev(nflogdataobject *nd, void *) {
   Py_INCREF(nd->outdev);
   return nd->outdev;
 }
 
-static PyObject * nd_get_physoutdev(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_physoutdev(nflogdataobject *nd, void *) {
   Py_INCREF(nd->physoutdev);
   return nd->physoutdev;
 }
 
-static PyObject * nd_get_uid(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_uid(nflogdataobject *nd, void *) {
   Py_INCREF(nd->uid);
   return nd->uid;
 }
 
-static PyObject * nd_get_gid(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_gid(nflogdataobject *nd, void *) {
   Py_INCREF(nd->gid);
   return nd->gid;
 }
 
-static PyObject * nd_get_hwaddr(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_hwaddr(nflogdataobject *nd, void *) {
   Py_INCREF(nd->hwaddr);
   return nd->hwaddr;
 }
 
-static PyObject * nd_get_hwhdr(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_hwhdr(nflogdataobject *nd, void *) {
   Py_INCREF(nd->hwhdr);
   return nd->hwhdr;
 }
 
-static PyObject * nd_get_payload(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_payload(nflogdataobject *nd, void *) {
   Py_INCREF(nd->payload);
   return nd->payload;
 }
 
-static PyObject * nd_get_prefix(register nflogdataobject *nd, void *) {
+static PyObject * nd_get_prefix(nflogdataobject *nd, void *) {
   Py_INCREF(nd->prefix);
   return nd->prefix;
 }
@@ -349,14 +349,14 @@ PyDoc_STRVAR(nd__get_raw_doc,
 "   Tuple[Dict[int, str], Tuple[Union[bytes, None]]]: a raw data structure\n"
 "\n"
 );
-static PyObject * nd__get_raw(register nflogdataobject *nd, PyObject *args) {
+static PyObject * nd__get_raw(nflogdataobject *nd, PyObject *args) {
   PyObject *pyuseraw = Py_None;
   if (!PyArg_ParseTuple(args, "|O:_get_raw", &pyuseraw)) { return NULL; }
   return nd__get_raw_impl((PyObject *)nd, pyuseraw);
 }
 
 PyObject * nd__get_raw_impl(PyObject *o, PyObject *pyuseraw) {
-  register nflogdataobject *nd = (nflogdataobject *)o;
+  nflogdataobject *nd = (nflogdataobject *)o;
   // by default, use the raw data if it exists
   int useraw = !!(nd->devnames);
 
@@ -664,7 +664,7 @@ static PyObject * _ull_AsBigEndian(unsigned long long val, unsigned char width) 
   return bytes;
 }
 
-PyObject * nd__iter__(register nflogdataobject *nd) {
+PyObject * nd__iter__(nflogdataobject *nd) {
   if (PyType_Ready(&NflogDataItertype) != 0) { return NULL; }
 
   nflogdataiter *iter = PyObject_New(nflogdataiter, &NflogDataItertype);
@@ -675,7 +675,7 @@ PyObject * nd__iter__(register nflogdataobject *nd) {
   return (PyObject *)iter;
 }
 
-PyObject * nd__str__(register nflogdataobject *nd) {
+PyObject * nd__str__(nflogdataobject *nd) {
   // basically equivalent to dict(nd)
   PyObject *dict = PyDict_New();
   if (!dict) { return NULL; }
@@ -690,7 +690,7 @@ PyObject * nd__str__(register nflogdataobject *nd) {
   return repr;
 }
 
-PyObject * nd__repr__(register nflogdataobject *nd) {
+PyObject * nd__repr__(nflogdataobject *nd) {
   if (nd->raw == Py_None) { return nd__str__(nd); }
   return PyUnicode_FromFormat("%s(%R, %R)", _PyType_Name(Py_TYPE(nd)), nd->devnames, nd->raw);
 }
@@ -758,17 +758,17 @@ PyTypeObject NflogDatatype {
 };
 
 // iterator helper class
-static void ndi_dealloc(register nflogdataiter *ndi) {
+static void ndi_dealloc(nflogdataiter *ndi) {
   Py_DECREF(ndi->nd);
   PyObject_Del(ndi);
 }
 
-PyObject * ndi__iter__(register nflogdataiter *ndi) {
+PyObject * ndi__iter__(nflogdataiter *ndi) {
   Py_INCREF(ndi);
   return (PyObject *)ndi;
 }
 
-PyObject * ndi__next__(register nflogdataiter *ndi) {
+PyObject * ndi__next__(nflogdataiter *ndi) {
   char *name;
   getter *get;
   PyObject *val;

@@ -55,7 +55,7 @@ typedef struct {
   } while (0);
 
 // walk the fifo for size, can't fail under any reasonable circumstances
-static Py_ssize_t fifo_len(register nflogobject *n) {
+static Py_ssize_t fifo_len(nflogobject *n) {
   Py_ssize_t len = 0;
 
 #if NFLOGR_DEBUG
@@ -85,7 +85,7 @@ static Py_ssize_t fifo_len(register nflogobject *n) {
 }
 
 // append to fifo, steals refrence to o, returns 0 on success, -1 on failure
-static int fifo_push(register nflogobject *n, PyObject *o) {
+static int fifo_push(nflogobject *n, PyObject *o) {
   fifo_t *entry = (fifo_t *)malloc(sizeof(fifo_t));
   if (!entry) {
     PyErr_NoMemory();
@@ -118,7 +118,7 @@ static int fifo_push(register nflogobject *n, PyObject *o) {
 }
 
 // take from fifo, returns owned reference, can't fail
-static PyObject * fifo_shift(register nflogobject *n) {
+static PyObject * fifo_shift(nflogobject *n) {
   if (!n->head) { Py_RETURN_NONE; }
 
   // get the first object
@@ -143,7 +143,7 @@ static PyObject * fifo_shift(register nflogobject *n) {
 }
 
 // empties the fifo, decrementing refrence count of contained objects
-static void fifo_empty(register nflogobject *n) {
+static void fifo_empty(nflogobject *n) {
   PyObject *o;
   for (;;) {
     o = fifo_shift(n);
@@ -163,7 +163,7 @@ static PyObject * entuple(PyObject *o) {
   return tup;
 }
 
-static PyObject * n_close(register nflogobject *n, PyObject *) {
+static PyObject * n_close(nflogobject *n, PyObject *) {
   NFLOG_CHECK(n, NULL);
 
   if (n->gh) { nflog_unbind_group(n->gh); }
@@ -180,33 +180,33 @@ static PyObject * n_close(register nflogobject *n, PyObject *) {
   Py_RETURN_NONE;
 }
 
-static void nflog_dealloc(register nflogobject *n) {
+static void nflog_dealloc(nflogobject *n) {
   n_close(n, NULL);
   fifo_empty(n);
   PyObject_Del(n);
 }
 
 // nflog methods
-static PyObject * n_queue(register nflogobject *n, PyObject *args);
-static PyObject * n_next(register nflogobject *n, PyObject *args);
-static PyObject * n_loop(register nflogobject *n, PyObject *args);
-static PyObject * n_getfd(register nflogobject *n, PyObject *);
-static PyObject * n_getgroup(register nflogobject *n, PyObject *);
-static PyObject * n_fileno(register nflogobject *n, PyObject *);
-static PyObject * n__raw(register nflogobject *n, PyObject *args);
-static PyObject * n__recv_raw(register nflogobject *n, PyObject *);
-static PyObject * n__enter__(register nflogobject *n, PyObject *);
-static PyObject * n__iter__(register nflogobject *n);
-static PyObject * n__next__(register nflogobject *n);
+static PyObject * n_queue(nflogobject *n, PyObject *args);
+static PyObject * n_next(nflogobject *n, PyObject *args);
+static PyObject * n_loop(nflogobject *n, PyObject *args);
+static PyObject * n_getfd(nflogobject *n, PyObject *);
+static PyObject * n_getgroup(nflogobject *n, PyObject *);
+static PyObject * n_fileno(nflogobject *n, PyObject *);
+static PyObject * n__raw(nflogobject *n, PyObject *args);
+static PyObject * n__recv_raw(nflogobject *n, PyObject *);
+static PyObject * n__enter__(nflogobject *n, PyObject *);
+static PyObject * n__iter__(nflogobject *n);
+static PyObject * n__next__(nflogobject *n);
 
 // nflog getters/setters
-static PyObject * n_get_drops(register nflogobject *n, void *) {
+static PyObject * n_get_drops(nflogobject *n, void *) {
   NFLOG_CHECK(n, NULL);
 
   return Py_BuildValue("i", n->drops > 0 ? n->drops : 0);
 }
 
-static int n_set_drops(register nflogobject *n, PyObject *v, void *) {
+static int n_set_drops(nflogobject *n, PyObject *v, void *) {
   NFLOG_CHECK(n, -1);
 
   if (PyLong_AsLong(v) != 0) {
@@ -218,7 +218,7 @@ static int n_set_drops(register nflogobject *n, PyObject *v, void *) {
   return 0;
 }
 
-static PyObject * n_get_rcvbuf(register nflogobject *n, void *) {
+static PyObject * n_get_rcvbuf(nflogobject *n, void *) {
   NFLOG_CHECK(n, NULL);
 
   int opt;
@@ -233,7 +233,7 @@ static PyObject * n_get_rcvbuf(register nflogobject *n, void *) {
   return Py_BuildValue("i", opt / 2);
 }
 
-static int n_set_rcvbuf(register nflogobject *n, PyObject *v, void *) {
+static int n_set_rcvbuf(nflogobject *n, PyObject *v, void *) {
   NFLOG_CHECK(n, -1);
 
   long rcvbuf = PyLong_AsLong(v);
@@ -243,7 +243,7 @@ static int n_set_rcvbuf(register nflogobject *n, PyObject *v, void *) {
 }
 
 // nflog getters without setters
-static PyObject * n_get_queued(register nflogobject *n, void *) {
+static PyObject * n_get_queued(nflogobject *n, void *) {
   NFLOG_CHECK(n, NULL);
 
   if (n->head) { Py_RETURN_TRUE; } else { Py_RETURN_FALSE; }
@@ -397,7 +397,7 @@ PyObject * mock_nflogobject(PyObject *iter) {
 }
 
 // queue received packets (if any), returns number queued or -1 on error
-static int _queue(register nflogobject *n, int wait) {
+static int _queue(nflogobject *n, int wait) {
   // we don't need to try to receive for closed handles
   if (n->fd == -2 || !(n->h) || !(n->gh)) { return 0; }
 
@@ -461,7 +461,7 @@ static int _queue(register nflogobject *n, int wait) {
 }
 
 // return exactly one nflogdata object (or None)
-static PyObject * _next(register nflogobject *n, int wait) {
+static PyObject * _next(nflogobject *n, int wait) {
   for (int retry = 0; retry < RECV_RETRY_LIMIT; ++retry) {
     PyObject *nd;
     int rv;
@@ -478,7 +478,7 @@ static PyObject * _next(register nflogobject *n, int wait) {
   return NULL;
 }
 
-static PyObject * n__recv_raw(register nflogobject *n, PyObject *) {
+static PyObject * n__recv_raw(nflogobject *n, PyObject *) {
   NFLOG_CHECK(n, NULL);
 
   fifo_empty(n);
@@ -507,7 +507,7 @@ n__recv_raw_cleanup:
   return NULL;
 }
 
-static PyObject * n_queue(register nflogobject *n, PyObject *args) {
+static PyObject * n_queue(nflogobject *n, PyObject *args) {
   NFLOG_CHECK(n, NULL);
 
   int queued, wait = 1;
@@ -516,7 +516,7 @@ static PyObject * n_queue(register nflogobject *n, PyObject *args) {
   return Py_BuildValue("i", queued);
 }
 
-static PyObject * n_next(register nflogobject *n, PyObject *args) {
+static PyObject * n_next(nflogobject *n, PyObject *args) {
   NFLOG_CHECK(n, NULL);
 
   int wait = 1;
@@ -524,7 +524,7 @@ static PyObject * n_next(register nflogobject *n, PyObject *args) {
   return _next(n, wait);
 }
 
-static PyObject * n_loop(register nflogobject *n, PyObject *args) {
+static PyObject * n_loop(nflogobject *n, PyObject *args) {
   NFLOG_CHECK(n, NULL);
 
   int cnt = -1;
@@ -554,7 +554,7 @@ static PyObject * n_loop(register nflogobject *n, PyObject *args) {
   Py_RETURN_NONE;
 }
 
-static PyObject * n_getfd(register nflogobject *n, PyObject *) {
+static PyObject * n_getfd(nflogobject *n, PyObject *) {
   NFLOG_CHECK(n, NULL);
 
   if (n->fd >= 0) {
@@ -564,7 +564,7 @@ static PyObject * n_getfd(register nflogobject *n, PyObject *) {
   }
 }
 
-static PyObject * n_fileno(register nflogobject *n, PyObject *) {
+static PyObject * n_fileno(nflogobject *n, PyObject *) {
   NFLOG_CHECK(n, NULL);
 
   if (n->fd >= 0) {
@@ -575,7 +575,7 @@ static PyObject * n_fileno(register nflogobject *n, PyObject *) {
   }
 }
 
-static PyObject * n_getgroup(register nflogobject *n, PyObject *) {
+static PyObject * n_getgroup(nflogobject *n, PyObject *) {
   NFLOG_CHECK(n, NULL);
 
   if (n->group >= 0) {
@@ -585,7 +585,7 @@ static PyObject * n_getgroup(register nflogobject *n, PyObject *) {
   }
 }
 
-static PyObject * n__raw(register nflogobject *n, PyObject *args) {
+static PyObject * n__raw(nflogobject *n, PyObject *args) {
   NFLOG_CHECK(n, NULL);
 
   PyObject *value = Py_None;
@@ -596,17 +596,17 @@ static PyObject * n__raw(register nflogobject *n, PyObject *args) {
   return PyBool_FromLong(n->raw);
 }
 
-static PyObject * n__enter__(register nflogobject *n, PyObject *) {
+static PyObject * n__enter__(nflogobject *n, PyObject *) {
   Py_INCREF(n);
   return (PyObject *)n;
 }
 
-static PyObject * n__iter__(register nflogobject *n) {
+static PyObject * n__iter__(nflogobject *n) {
   Py_INCREF(n);
   return (PyObject *)n;
 }
 
-static PyObject * n__next__(register nflogobject *n) {
+static PyObject * n__next__(nflogobject *n) {
   NFLOG_CHECK(n, NULL);
 
   PyObject *nd;
