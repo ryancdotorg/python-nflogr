@@ -16,7 +16,7 @@ with open(path.join(here, 'README.md')) as f:
 
 pkg_attrs = dict(
     name='nflogr',
-    version='0.2.2',
+    version='0.2.3',
     description='An object-oriented Python interface to read data via NFLOG',
     long_description=long_description,
     long_description_content_type='text/markdown',
