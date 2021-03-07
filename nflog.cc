@@ -86,15 +86,16 @@ static Py_ssize_t fifo_len(nflogobject *n) {
 
 // append to fifo, steals refrence to o, returns 0 on success, -1 on failure
 static int fifo_push(nflogobject *n, PyObject *o) {
-  fifo_t *entry = (fifo_t *)malloc(sizeof(fifo_t));
-  if (!entry) {
-    PyErr_NoMemory();
-    return -1;
-  } else if (o == Py_None) {
+  fifo_t *entry;
+
+  if (o == Py_None) {
     // don't push None
     return 0;
   } else if (!o) {
     // if we have a null pointer, something's gone very wrong
+    return -1;
+  } else if (!(entry = (fifo_t *)malloc(sizeof(fifo_t)))) {
+    PyErr_NoMemory();
     return -1;
   }
 
@@ -221,7 +222,7 @@ static int n_set_drops(nflogobject *n, PyObject *v, void *) {
 static PyObject * n_get_rcvbuf(nflogobject *n, void *) {
   NFLOG_CHECK(n, NULL);
 
-  int opt;
+  int opt = -2;
   socklen_t len;
   if (n->fd < 0) {
     Py_RETURN_NONE;
