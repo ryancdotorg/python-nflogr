@@ -58,11 +58,28 @@ typedef struct {
 static Py_ssize_t fifo_len(register nflogobject *n) {
   Py_ssize_t len = 0;
 
+#if NFLOGR_DEBUG
+  if (n->tail && n->tail->next) {
+    nfldbg("n->tail->next:%p != (nil)\n", n->tail->next);
+  }
+#endif
+
   fifo_t *node = n->head;
   while (node) {
+#if NFLOGR_DEBUG
+  if (node->next == NULL && node != n->tail) {
+    nfldbg("node:%p != n->tail:%p\n", node, n->tail);
+  }
+#endif
     node = node->next;
     ++len;
   }
+
+#if NFLOGR_DEBUG
+  if (len != n->queued) {
+    nfldbg("len:%zd != n->queued:%d\n", len, n->queued);
+  }
+#endif
 
   return len;
 }
@@ -94,6 +111,9 @@ static int fifo_push(register nflogobject *n, PyObject *o) {
   }
 
   n->queued++;
+#if NFLOGR_DEBUG
+  fifo_len(n);
+#endif
   return 0;
 }
 
@@ -116,6 +136,9 @@ static PyObject * fifo_shift(register nflogobject *n) {
   }
 
   n->queued--;
+#if NFLOGR_DEBUG
+  fifo_len(n);
+#endif
   return o;
 }
 
