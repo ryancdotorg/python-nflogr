@@ -260,8 +260,34 @@ PyMODINIT_FUNC PyInit_nflogr(void) {
   if (PyModule_AddIntConstant(m, "ENOBUFS_HANDLE", NFLOGR_ENOBUFS_HANDLE) != 0) { goto nflogr_cleanup; }
   if (PyModule_AddIntConstant(m, "ENOBUFS_DISABLE", NFLOGR_ENOBUFS_DISABLE) != 0) { goto nflogr_cleanup; }
 
-#ifdef NFLOGR_VERSION
-  if (PyModule_AddStringConstant(m, "__version__", NFLOGR_VERSION) != 0) { goto nflogr_cleanup; }
+#ifdef NFLOGR_META
+  {
+    int failed = 1;
+    const char *meta_json = NFLOGR_META;
+    PyObject *pystr, *args = NULL, *md = NULL, *json = NULL, *loads = NULL, *dict = NULL;
+
+    do {  // load module metadata from string literal
+      if (!(pystr = Py_BuildValue("s", meta_json))) { break; }
+      if (!(args = PyTuple_New(1))) { Py_DECREF(pystr); break; }
+      PyTuple_SET_ITEM(args, 0, pystr); // steals refrence to pystr
+      if (!(md = PyModule_GetDict(m))) { break; } // returns borrows reference
+      if (!(json = PyImport_ImportModule("json"))) { break; }
+      if (!(loads = PyObject_GetAttrString(json, "loads"))) { break; }
+      if (!(dict = PyObject_CallObject(loads, args))) { break; }
+      if (!PyDict_Check(dict)) {
+        PyErr_SetString(PyExc_ValueError, "loaded metadata not a dict");
+        break;
+      }
+      if (PyDict_Merge(md, dict, 0) != 0) { break; }
+    } while((failed = 0));
+
+    Py_XDECREF(args);
+    Py_XDECREF(json);
+    Py_XDECREF(loads);
+    Py_XDECREF(dict);
+
+    if (failed) { goto nflogr_cleanup; }
+  }
 #endif
 
   return m;
