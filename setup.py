@@ -196,6 +196,27 @@ def setup(**attrs):
     attrs['version'] += git.build_info(attrs['version'])
     cmd = attrs.setdefault('cmdclass', {})
 
+    class push(distutils.cmd.Command):
+        user_options = []
+
+        def initialize_options(self):
+            pass
+
+        def finalize_options(self):
+            pass
+
+        def run(self):
+            from subprocess import check_call
+
+            if git.is_clean() is True and git.get_tag() == attrs['version']:
+                check_call(['git', 'push', '--tags'])
+                check_call([
+                    'twine', 'upload', '--repository', 'pypi',
+                    'dist/{name}-{version}.tar.gz'.format(**attrs)
+                ])
+            else:
+                raise ValueError('can only push from cleanly tagged repo')
+
     class build_ext(cmd.get('build_ext', distutils.command.build_ext.build_ext)):
         def run(self):
             make_constants(distutils.log, 'linux/if_arp.h', 'hwtype', r'.+ARPHRD_(\S+)\s+(\S+).*')
@@ -228,6 +249,7 @@ def setup(**attrs):
             super().run()
 
     cmd['build_ext'] = build_ext
+    cmd['push'] = push
     return distutils.core.setup(**attrs)
 
 setup(**pkg_attrs)
