@@ -1,5 +1,4 @@
-include LICENSE nflogconst.h *_def.cc
+include LICENSE *_def.cc
 graft examples
-
-exclude nflogconsthwtype.cc nflogconstproto.cc
+prune gen
 global-exclude *.py[cod]

@@ -15,7 +15,6 @@ extern "C" {
 #include "nflog.h"
 #include "nflogopt.h"
 #include "nflogdata.h"
-#include "nflogconst.h"
 
 PyObject *NflogError;
 PyObject *NflogRetryError;
@@ -245,6 +244,10 @@ static struct PyModuleDef nflogr_module = {
     Py_DECREF(M); \
     return NULL; \
   }
+
+// pulled in from other files
+int nflog_add_protos(PyObject *dict);
+int nflog_add_hwtypes(PyObject *dict);
 
 PyMODINIT_FUNC PyInit_nflogr(void) {
   PyObject *m;

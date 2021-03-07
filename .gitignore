@@ -59,5 +59,4 @@ docs/_build/
 target/
 
 # Project specific:
-nflogconstproto.cc
-nflogconsthwtype.cc
+gen/
