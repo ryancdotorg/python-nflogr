@@ -53,18 +53,33 @@ pkg_attrs = dict(
     python_requires='>=3.6',
 )
 
-# give an escaped representation of a `str`, `bytes` or `Iterable[int]` value
+# escape a `str`, `bytes`, `bytearray` or `Iterable[int]` value as a C string
 def c_str(s):
     out = '' # see https://w.wiki/34HP
-    escape = {8: 98, 9: 116, 10: 110, 13: 114, 34: 34, 39: 39, 63: 63, 92: 92}
+    trigraph = {33, 39, 40, 41, 45, 47, 60, 61, 62}
+    escape = {8: 98, 9: 116, 10: 110, 13: 114, 34: 34, 39: 39, 92: 92}
+    if isinstance(s, bytearray): s = bytes(s)
+    if isinstance(s, bytes):
+        try: s = s.decode()
+        except: pass
     if isinstance(s, str): s = map(ord, s)
-    for n in s:
-        if n in escape:   out += f'\\{escape[n]:c}'
-        elif n <=   0x1f: out += f'\\{n:o}'
-        elif n <=   0x7e: out += f'{n:c}'
-        elif n <=   0xff: out += f'\\x{n:02x}'
-        elif n <= 0xffff: out += f'\\u{n:04x}'
-        else:             out += f'\\U{n:08x}'
+    s = list(s)
+    for i in range(len(s)):
+        p = 0 if i < 1 else s[i-1]
+        c = s[i]
+        n = 0 if i > len(s) - i else s[i+1]
+        # avoid trigraphs
+        if c == 63 and p == 63 and n in trigraph: out += '\\?'
+        elif c in escape: out += f'\\{escape[c]:c}'
+        elif c <=   0x07 and (n < 48 or n > 55): out += f'\\{c:01o}'
+        elif c <=   0x1f and (n < 48 or n > 55): out += f'\\{c:02o}'
+        elif c <=   0x1f: out += f'\\{c:03o}'
+        elif c <=   0x7e: out += f'{c:c}'
+        elif c <=   0xff: out += f'\\o{c:03o}'
+        elif c >= 0xd800 and c <= 0xdfff:
+            raise ValueError("invalid codepoint: U+{c04X}")
+        elif c <= 0xffff: out += f'\\u{c:04x}'
+        else:             out += f'\\U{c:08x}'
 
     return f'"{out}"'
 
