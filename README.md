@@ -34,7 +34,7 @@ python3 setup.py install
 
 ### Requirements
 
- * Python 3.5 or later, including header files.
+ * Python 3.6 or later, including header files.
  * The Python `distutils` and `setuptools` packages.
  * A C++ compiler. GCC G++ 8.3.0 is known to work.
  * Development versions of libnfnetlink and libnetfilter_log.
