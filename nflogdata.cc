@@ -1,7 +1,6 @@
 /* Copyright 2021 Ryan Castellucci, MIT License */
 
 #include <Python.h>
-#include <pytime.h>
 
 #include <stdio.h>
 #include <stdint.h>
@@ -128,18 +127,14 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
   nd->proto = ph ? ntohs(ph->hw_protocol) : 0;
 
   // timestamp
-  _PyTime_t tp;
   struct timeval tv;
   if (nflog_get_timestamp(nfad, &tv) != 0) {
     PyErr_SetString(NflogError, "no timestamp data");
     nd_dealloc(nd);
     return NULL;
   }
-  if (_PyTime_FromTimeval(&tp, &tv) != 0) {
-    nd_dealloc(nd);
-    return NULL;
-  }
-  nd->timestamp = _PyTime_AsSecondsDouble(tp);
+  double tv_frac = tv.tv_usec / 1e6;
+  nd->timestamp = tv.tv_sec + tv_frac;
 
   // internal values
   if ((nd->devnames = devnames)) {

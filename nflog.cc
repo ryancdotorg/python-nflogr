@@ -1,7 +1,6 @@
 /* Copyright 2021 Ryan Castellucci, MIT License */
 
 #include <Python.h>
-#include <pytime.h>
 
 #include <errno.h>
 #include <stdio.h>
