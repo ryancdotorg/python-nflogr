@@ -18,6 +18,9 @@ extern "C" {
 #include "nflogr.h"
 #include "nflogdata.h"
 
+// time conversion factors
+#define SEC_TO_US 1000000
+
 // internal nflogdataobject
 typedef struct {
   PyObject_HEAD
@@ -25,7 +28,7 @@ typedef struct {
   uint16_t hwtype;
   uint32_t nfmark;
 
-  double   timestamp;
+  uint64_t timestamp_us;
 
   PyObject *indev;
   PyObject *physindev;
@@ -133,8 +136,7 @@ PyObject * new_nflogdataobject(struct nflog_data *nfad, PyObject *devnames) {
     nd_dealloc(nd);
     return NULL;
   }
-  double tv_frac = tv.tv_usec / 1e6;
-  nd->timestamp = tv.tv_sec + tv_frac;
+  nd->timestamp_us = tv.tv_sec * SEC_TO_US + tv.tv_usec;
 
   // internal values
   if ((nd->devnames = devnames)) {
@@ -218,8 +220,22 @@ static PyObject * nd_get_nfmark(nflogdataobject *nd, void *) {
   return Py_BuildValue("k", nd->nfmark);
 }
 
+static PyObject * nd_get_timestamp_us(nflogdataobject *nd, void *) {
+  return Py_BuildValue("K", nd->timestamp_us);
+}
+
 static PyObject * nd_get_timestamp(nflogdataobject *nd, void *) {
-  return PyFloat_FromDouble(nd->timestamp);
+  volatile double ts;
+
+  if (nd->timestamp_us % SEC_TO_US == 0) {
+    // integer division to avoid rounding issues
+    time_t s = nd->timestamp_us / SEC_TO_US;
+    ts = (double)s;
+  } else {
+    ts = nd->timestamp_us / 1e6;
+  }
+
+  return PyFloat_FromDouble(ts);
 }
 
 static PyObject * nd_get_indev(nflogdataobject *nd, void *) {
@@ -278,6 +294,7 @@ static PyGetSetDef nd_getset[] = {
   {"hwtype",     (getter)nd_get_hwtype,     NULL, NULL, NULL},
   {"nfmark",     (getter)nd_get_nfmark,     NULL, NULL, NULL},
   {"timestamp",  (getter)nd_get_timestamp,  NULL, NULL, NULL},
+  {"timestamp_us", (getter)nd_get_timestamp_us, NULL, NULL, NULL},
   {"indev",      (getter)nd_get_indev,      NULL, NULL, NULL},
   {"physindev",  (getter)nd_get_physindev,  NULL, NULL, NULL},
   {"outdev",     (getter)nd_get_outdev,     NULL, NULL, NULL},
@@ -404,9 +421,9 @@ PyObject * nd__get_raw_impl(PyObject *o, PyObject *pyuseraw) {
   {
     // NFULA_TIMESTAMP - construct from nd->timestamp
     struct nfulnl_msg_packet_timestamp uts;
-    double sec = nd->timestamp;
-    uint64_t usec = ((0.0000005 + sec) - ((uint64_t)sec)) * 1000000.0;
-    if (usec > 999999) { usec = 999999; }  // just in case...
+    uint64_t usec = nd->timestamp_us;
+    uint64_t sec = usec / SEC_TO_US;
+    usec %= SEC_TO_US;
     uts.sec = htobe64(sec);
     uts.usec = htobe64(usec);
     if (!(item = Py_BuildValue("y#", (char *)(&uts), sizeof(uts)))) {

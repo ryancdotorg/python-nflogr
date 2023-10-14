@@ -41,7 +41,7 @@ python3 setup.py install
 
 On Debian/Ubuntu, try:
 ```
-sudo apt install libnetfilter-log-dev build-essential 
+sudo apt install libnetfilter-log-dev build-essential
 sudo apt install python3-{distutils,setuptools,dev}
 ```
 
@@ -175,6 +175,7 @@ read-only attributes:
 | hwtype     | Hardware type identifier (int, see `if_arp.h`) |
 | nfmark     | Netfilter packet mark value (int) |
 | timestamp  | Timestamp of when the packet was logged (float) |
+| timestamp_us | Timestamp of when the packet was logged in microseconds (int) |
 | indev      | Name of the logical interface the packet was received on (str), or `None` if not known/applicable |
 | physindev  | Name of the physical interface the packet was received on (str), or `None` if not known/applicable |
 | outdev     | Name of the logical interface the packet will be sent on (str), or `None` if not known/applicable |
